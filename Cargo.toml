@@ -1,0 +1,43 @@
+[package]
+name = "s3sync"
+version = "0.1.0"
+edition = "2021"
+authors = ["S3Sync Team"]
+description = "A Windows GUI application for syncing local folders to AWS S3 buckets"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+# AWS SDK
+aws-config = "0.54.1"
+aws-sdk-s3 = "0.24.0"
+aws-types = "0.54.1"
+
+# GUI - using egui for this implementation
+eframe = "0.17.0"  # egui framework
+egui = "0.17.0"    # immediate mode GUI
+
+# Async runtime
+tokio = { version = "1.28.0", features = ["full"] }
+
+# Utilities
+anyhow = "1.0.70"     # Error handling
+log = "0.4.17"        # Logging
+env_logger = "0.10.0" # Logger implementation
+chrono = "0.4.24"     # Date and time
+serde = { version = "1.0.160", features = ["derive"] } # Serialization
+serde_json = "1.0.96"                                # JSON support
+dirs = "4.0.0"        # Finding system directories
+walkdir = "2.3.3"     # Directory traversal
+sha2 = "0.10.6"       # Hashing for file comparison
+keyring = "1.2.0"     # Secure credential storage
+
+[build-dependencies]
+winres = "0.1.12"     # Windows resource files
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true          # Strip symbols from binary

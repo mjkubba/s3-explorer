@@ -1,0 +1,107 @@
+use eframe::egui;
+
+/// Component for application settings
+#[derive(Default)]
+pub struct SettingsView {
+    aws_access_key: String,
+    aws_secret_key: String,
+    aws_region: String,
+    sync_interval: u32,
+    delete_enabled: bool,
+    bandwidth_limit: Option<u32>,
+    exclude_patterns: String,
+}
+
+impl SettingsView {
+    /// Render the settings UI
+    pub fn ui(&mut self, ui: &mut egui::Ui) {
+        ui.heading("Settings");
+        
+        egui::Grid::new("settings_grid")
+            .num_columns(2)
+            .spacing([40.0, 4.0])
+            .striped(true)
+            .show(ui, |ui| {
+                // AWS Settings
+                ui.heading("AWS Configuration");
+                ui.end_row();
+                
+                ui.label("Access Key ID:");
+                ui.text_edit_singleline(&mut self.aws_access_key);
+                ui.end_row();
+                
+                ui.label("Secret Access Key:");
+                ui.add(egui::TextEdit::singleline(&mut self.aws_secret_key).password(true));
+                ui.end_row();
+                
+                ui.label("Region:");
+                egui::ComboBox::from_label("")
+                    .selected_text(&self.aws_region)
+                    .show_ui(ui, |ui| {
+                        for region in &["us-east-1", "us-west-1", "us-west-2", "eu-west-1", "ap-northeast-1"] {
+                            ui.selectable_value(&mut self.aws_region, region.to_string(), *region);
+                        }
+                    });
+                ui.end_row();
+                
+                ui.add_space(10.0);
+                ui.end_row();
+                
+                // Sync Settings
+                ui.heading("Sync Settings");
+                ui.end_row();
+                
+                ui.label("Sync Interval (minutes):");
+                ui.add(egui::Slider::new(&mut self.sync_interval, 0..=1440)
+                    .text("min")
+                    .clamp_to_range(true)
+                    .custom_formatter(|v, _| if v == 0 { "Manual".to_string() } else { format!("{}", v) }));
+                ui.end_row();
+                
+                ui.label("Delete files:");
+                ui.checkbox(&mut self.delete_enabled, "Delete files in S3 that were deleted locally");
+                ui.end_row();
+                
+                ui.label("Bandwidth Limit (KB/s):");
+                ui.horizontal(|ui| {
+                    let mut limit_enabled = self.bandwidth_limit.is_some();
+                    ui.checkbox(&mut limit_enabled, "");
+                    
+                    let mut value = self.bandwidth_limit.unwrap_or(1024);
+                    ui.add_enabled(
+                        limit_enabled,
+                        egui::Slider::new(&mut value, 64..=10240).text("KB/s")
+                    );
+                    
+                    self.bandwidth_limit = if limit_enabled { Some(value) } else { None };
+                });
+                ui.end_row();
+                
+                ui.label("Exclude Patterns:");
+                ui.text_edit_multiline(&mut self.exclude_patterns);
+                ui.end_row();
+            });
+            
+        ui.separator();
+        
+        ui.horizontal(|ui| {
+            if ui.button("Save").clicked() {
+                // TODO: Save settings
+            }
+            
+            if ui.button("Reset").clicked() {
+                // TODO: Reset settings to defaults
+            }
+        });
+    }
+    
+    /// Load settings from configuration
+    pub fn load_settings(&mut self) {
+        // TODO: Implement loading settings from config file
+    }
+    
+    /// Save settings to configuration
+    pub fn save_settings(&self) {
+        // TODO: Implement saving settings to config file
+    }
+}
