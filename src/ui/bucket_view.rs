@@ -107,7 +107,7 @@ impl BucketView {
     }
     
     /// Load objects from the selected bucket
-    pub fn load_objects(&mut self, bucket: &str) {
+    pub fn load_objects(&mut self, _bucket: &str) {
         // TODO: Implement actual AWS S3 object loading
         // For now, add some dummy data
         self.objects = vec![

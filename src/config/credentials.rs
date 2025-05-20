@@ -1,6 +1,6 @@
 use anyhow::{anyhow, Result};
 use keyring::Entry;
-use log::{debug, error, info};
+use log::{debug, info};
 
 /// Service name for keyring
 const SERVICE_NAME: &str = "s3sync";
@@ -12,12 +12,18 @@ impl CredentialManager {
     /// Save AWS credentials to the system keyring
     pub fn save_credentials(access_key: &str, secret_key: &str) -> Result<()> {
         // Save access key
-        let access_key_entry = Entry::new(SERVICE_NAME, "aws_access_key")?;
-        access_key_entry.set_password(access_key)?;
+        let access_key_entry = Entry::new(SERVICE_NAME, "aws_access_key");
+        
+        if let Err(e) = access_key_entry.set_password(access_key) {
+            return Err(anyhow!("Failed to save access key: {}", e));
+        }
         
         // Save secret key
-        let secret_key_entry = Entry::new(SERVICE_NAME, "aws_secret_key")?;
-        secret_key_entry.set_password(secret_key)?;
+        let secret_key_entry = Entry::new(SERVICE_NAME, "aws_secret_key");
+        
+        if let Err(e) = secret_key_entry.set_password(secret_key) {
+            return Err(anyhow!("Failed to save secret key: {}", e));
+        }
         
         info!("AWS credentials saved to keyring");
         Ok(())
@@ -25,11 +31,12 @@ impl CredentialManager {
     
     /// Load AWS access key from the system keyring
     pub fn load_access_key() -> Result<String> {
-        let entry = Entry::new(SERVICE_NAME, "aws_access_key")?;
+        let entry = Entry::new(SERVICE_NAME, "aws_access_key");
+        
         match entry.get_password() {
             Ok(password) => Ok(password),
-            Err(_) => {
-                debug!("AWS access key not found in keyring");
+            Err(e) => {
+                debug!("AWS access key not found in keyring: {}", e);
                 Ok(String::new())
             }
         }
@@ -37,11 +44,12 @@ impl CredentialManager {
     
     /// Load AWS secret key from the system keyring
     pub fn load_secret_key() -> Result<String> {
-        let entry = Entry::new(SERVICE_NAME, "aws_secret_key")?;
+        let entry = Entry::new(SERVICE_NAME, "aws_secret_key");
+        
         match entry.get_password() {
             Ok(password) => Ok(password),
-            Err(_) => {
-                debug!("AWS secret key not found in keyring");
+            Err(e) => {
+                debug!("AWS secret key not found in keyring: {}", e);
                 Ok(String::new())
             }
         }
@@ -50,11 +58,13 @@ impl CredentialManager {
     /// Clear AWS credentials from the system keyring
     pub fn clear_credentials() -> Result<()> {
         // Clear access key
-        let access_key_entry = Entry::new(SERVICE_NAME, "aws_access_key")?;
+        let access_key_entry = Entry::new(SERVICE_NAME, "aws_access_key");
+        
         let _ = access_key_entry.delete_password();
         
         // Clear secret key
-        let secret_key_entry = Entry::new(SERVICE_NAME, "aws_secret_key")?;
+        let secret_key_entry = Entry::new(SERVICE_NAME, "aws_secret_key");
+        
         let _ = secret_key_entry.delete_password();
         
         info!("AWS credentials cleared from keyring");

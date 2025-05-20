@@ -60,7 +60,7 @@ impl FolderList {
                         SyncStatus::Synced => "✓ Synced",
                         SyncStatus::Pending => "⏱ Pending",
                         SyncStatus::Syncing => "⟳ Syncing",
-                        SyncStatus::Error(msg) => "❌ Error",
+                        SyncStatus::Error(_) => "❌ Error",
                     };
                     
                     ui.label(status_text);

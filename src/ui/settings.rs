@@ -54,8 +54,16 @@ impl SettingsView {
                 ui.label("Sync Interval (minutes):");
                 ui.add(egui::Slider::new(&mut self.sync_interval, 0..=1440)
                     .text("min")
-                    .clamp_to_range(true)
-                    .custom_formatter(|v, _| if v == 0 { "Manual".to_string() } else { format!("{}", v) }));
+                    .clamp_to_range(true));
+                ui.end_row();
+                
+                // Display manual/auto based on sync_interval
+                ui.label("");
+                if self.sync_interval == 0 {
+                    ui.label("Manual sync only");
+                } else {
+                    ui.label(format!("Auto sync every {} minutes", self.sync_interval));
+                }
                 ui.end_row();
                 
                 ui.label("Delete files:");

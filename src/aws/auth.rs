@@ -5,6 +5,7 @@ use aws_types::region::Region;
 use log::{error, info};
 
 /// AWS authentication manager
+#[derive(Clone)]
 pub struct AwsAuth {
     client: Option<Client>,
     region: String,

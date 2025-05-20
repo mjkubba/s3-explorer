@@ -1,8 +1,8 @@
 use anyhow::{anyhow, Result};
-use log::{debug, error, info};
+use log::info;
 use serde::{Deserialize, Serialize};
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use crate::ui::folder_list::SyncFolder;
 

@@ -1,5 +1,5 @@
 use anyhow::{anyhow, Result};
-use aws_sdk_s3::model::GetObjectOutput;
+use aws_sdk_s3::output::GetObjectOutput;
 use log::{debug, error, info};
 use std::path::Path;
 use tokio::fs::File;
