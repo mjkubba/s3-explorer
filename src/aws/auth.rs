@@ -2,7 +2,7 @@ use anyhow::{anyhow, Result};
 use aws_config::meta::region::RegionProviderChain;
 use aws_sdk_s3::Client;
 use aws_types::region::Region;
-use log::{debug, error, info};
+use log::{error, info};
 
 /// AWS authentication manager
 pub struct AwsAuth {
@@ -43,17 +43,17 @@ impl AwsAuth {
         let region_provider = RegionProviderChain::first_try(Region::new(self.region.clone()))
             .or_default_provider();
             
+        let provider = aws_sdk_s3::Credentials::new(
+            &self.access_key,
+            &self.secret_key,
+            None,
+            None,
+            "s3sync-app",
+        );
+            
         let config = aws_config::from_env()
             .region(region_provider)
-            .credentials_provider(
-                aws_config::credentials::Credentials::new(
-                    &self.access_key,
-                    &self.secret_key,
-                    None,
-                    None,
-                    "s3sync-app",
-                )
-            )
+            .credentials_provider(provider)
             .load()
             .await;
             

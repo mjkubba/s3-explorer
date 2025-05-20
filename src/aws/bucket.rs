@@ -1,5 +1,4 @@
 use anyhow::{anyhow, Result};
-use aws_sdk_s3::model::{Bucket, Object};
 use log::{debug, error, info};
 
 use super::auth::AwsAuth;
@@ -77,11 +76,21 @@ impl BucketManager {
                 let objects = resp.contents().unwrap_or_default();
                 let object_infos: Vec<S3ObjectInfo> = objects
                     .iter()
-                    .map(|obj| S3ObjectInfo {
-                        key: obj.key().unwrap_or_default().to_string(),
-                        size: obj.size(),
-                        last_modified: obj.last_modified().map(|dt| dt.to_owned()),
-                        etag: obj.e_tag().map(String::from),
+                    .map(|obj| {
+                        // Convert AWS DateTime to chrono DateTime
+                        let aws_dt = obj.last_modified();
+                        let chrono_dt = aws_dt.map(|dt| {
+                            let secs = dt.secs();
+                            let nanos = dt.subsec_nanos();
+                            chrono::DateTime::<chrono::Utc>::from_timestamp(secs as i64, nanos).unwrap_or_default()
+                        });
+                        
+                        S3ObjectInfo {
+                            key: obj.key().unwrap_or_default().to_string(),
+                            size: obj.size(),
+                            last_modified: chrono_dt,
+                            etag: obj.e_tag().map(String::from),
+                        }
                     })
                     .collect();
                     

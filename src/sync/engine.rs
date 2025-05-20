@@ -1,8 +1,7 @@
 use anyhow::{anyhow, Result};
-use log::{debug, error, info, warn};
+use log::info;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
-use tokio::sync::mpsc;
 use walkdir::WalkDir;
 
 use crate::aws::auth::AwsAuth;
@@ -50,7 +49,7 @@ impl SyncEngine {
         bucket: &str,
         prefix: Option<&str>,
         delete_removed: bool,
-        progress_callback: Option<Box<dyn Fn(TransferProgress) + Send>>,
+        progress_callback: Option<&dyn Fn(TransferProgress)>,
     ) -> Result<SyncResult> {
         // Check if this folder is already being synced
         {
@@ -88,7 +87,7 @@ impl SyncEngine {
                     let local_path = diff.local_path.ok_or_else(|| anyhow!("Missing local path"))?;
                     let s3_key = diff.s3_key.ok_or_else(|| anyhow!("Missing S3 key"))?;
                     
-                    match self.transfer_manager.upload_file(&local_path, bucket, &s3_key, progress_callback.clone()).await {
+                    match self.transfer_manager.upload_file(&local_path, bucket, &s3_key, progress_callback).await {
                         Ok(_) => {
                             result.files_uploaded += 1;
                             result.bytes_transferred += local_path.metadata().map(|m| m.len()).unwrap_or(0);
@@ -102,7 +101,7 @@ impl SyncEngine {
                     let local_path = diff.local_path.ok_or_else(|| anyhow!("Missing local path"))?;
                     let s3_key = diff.s3_key.ok_or_else(|| anyhow!("Missing S3 key"))?;
                     
-                    match self.transfer_manager.download_file(bucket, &s3_key, &local_path, progress_callback.clone()).await {
+                    match self.transfer_manager.download_file(bucket, &s3_key, &local_path, progress_callback).await {
                         Ok(_) => {
                             result.files_downloaded += 1;
                             // Size will be updated after download

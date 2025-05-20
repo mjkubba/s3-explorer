@@ -1,7 +1,7 @@
 use anyhow::{anyhow, Result};
-use aws_sdk_s3::primitives::ByteStream;
+use aws_sdk_s3::model::GetObjectOutput;
 use log::{debug, error, info};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use tokio::fs::File;
 use tokio::io::AsyncWriteExt;
 
@@ -31,7 +31,7 @@ impl TransferManager {
         local_path: &Path,
         bucket: &str,
         key: &str,
-        progress_callback: Option<Box<dyn Fn(TransferProgress) + Send>>,
+        progress_callback: Option<&dyn Fn(TransferProgress)>,
     ) -> Result<()> {
         let client = self.auth.get_client().await?;
         
@@ -39,15 +39,15 @@ impl TransferManager {
         let metadata = tokio::fs::metadata(local_path).await?;
         let file_size = metadata.len();
         
-        // Create byte stream from file
-        let body = ByteStream::from_path(local_path).await?;
+        // Read file content
+        let body = tokio::fs::read(local_path).await?;
         
         // Upload the file
         match client
             .put_object()
             .bucket(bucket)
             .key(key)
-            .body(body)
+            .body(body.into())
             .send()
             .await
         {
@@ -78,7 +78,7 @@ impl TransferManager {
         bucket: &str,
         key: &str,
         local_path: &Path,
-        progress_callback: Option<Box<dyn Fn(TransferProgress) + Send>>,
+        progress_callback: Option<&dyn Fn(TransferProgress)>,
     ) -> Result<()> {
         let client = self.auth.get_client().await?;
         
@@ -97,29 +97,41 @@ impl TransferManager {
             
         let total_size = resp.content_length() as u64;
         
+        // Process the response
+        self.process_download_response(resp, local_path, total_size, progress_callback).await?;
+        
+        info!("Downloaded {}/{} to {}", bucket, key, local_path.display());
+        Ok(())
+    }
+    
+    /// Process the download response and write to file
+    async fn process_download_response(
+        &self,
+        resp: GetObjectOutput,
+        local_path: &Path,
+        total_size: u64,
+        progress_callback: Option<&dyn Fn(TransferProgress)>,
+    ) -> Result<()> {
         // Create the file
         let mut file = File::create(local_path).await?;
         
-        // Stream the data to the file
-        let mut stream = resp.body;
-        let mut bytes_written = 0;
+        // Get the body as bytes
+        let body = resp.body.collect().await?;
+        let bytes = body.into_bytes();
+        let bytes_len = bytes.len() as u64;
         
-        while let Some(chunk) = stream.try_next().await? {
-            file.write_all(&chunk).await?;
-            
-            bytes_written += chunk.len() as u64;
-            
-            // Update progress
-            if let Some(callback) = &progress_callback {
-                callback(TransferProgress {
-                    bytes_transferred: bytes_written,
-                    total_bytes: total_size,
-                    percentage: (bytes_written as f32 / total_size as f32) * 100.0,
-                });
-            }
+        // Write the bytes to the file
+        file.write_all(&bytes).await?;
+        
+        // Update progress
+        if let Some(callback) = progress_callback {
+            callback(TransferProgress {
+                bytes_transferred: bytes_len,
+                total_bytes: total_size,
+                percentage: (bytes_len as f32 / total_size as f32) * 100.0,
+            });
         }
         
-        info!("Downloaded {}/{} to {}", bucket, key, local_path.display());
         Ok(())
     }
     
@@ -144,7 +156,7 @@ impl TransferManager {
         &mut self,
         bucket: &str,
         key: &str,
-    ) -> Result<Option<aws_sdk_s3::types::HeadObjectOutput>> {
+    ) -> Result<Option<aws_sdk_s3::output::HeadObjectOutput>> {
         let client = self.auth.get_client().await?;
         
         match client.head_object().bucket(bucket).key(key).send().await {

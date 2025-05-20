@@ -21,7 +21,7 @@ enum CurrentView {
 
 impl S3SyncApp {
     /// Create a new instance of the application
-    pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
+    pub fn new(cc: &eframe::epi::Frame) -> Self {
         // Set up custom fonts if needed
         // cc.egui_ctx.set_fonts(...);
         
@@ -36,18 +36,22 @@ impl S3SyncApp {
     }
 }
 
-impl eframe::App for S3SyncApp {
-    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+impl eframe::epi::App for S3SyncApp {
+    fn update(&mut self, ctx: &egui::CtxRef, _frame: &mut eframe::epi::Frame) {
         match self.current_view {
             CurrentView::Main => self.render_main_view(ctx),
             CurrentView::Settings => self.render_settings_view(ctx),
         }
     }
+    
+    fn name(&self) -> &str {
+        "S3Sync"
+    }
 }
 
 impl S3SyncApp {
     /// Render the main application view with folder list and bucket view
-    fn render_main_view(&mut self, ctx: &egui::Context) {
+    fn render_main_view(&mut self, ctx: &egui::CtxRef) {
         egui::TopBottomPanel::top("top_panel").show(ctx, |ui| {
             egui::menu::bar(ui, |ui| {
                 ui.menu_button("File", |ui| {
@@ -56,7 +60,7 @@ impl S3SyncApp {
                         ui.close_menu();
                     }
                     if ui.button("Exit").clicked() {
-                        ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                        std::process::exit(0);
                     }
                 });
                 
@@ -99,7 +103,7 @@ impl S3SyncApp {
     }
     
     /// Render the settings view
-    fn render_settings_view(&mut self, ctx: &egui::Context) {
+    fn render_settings_view(&mut self, ctx: &egui::CtxRef) {
         egui::CentralPanel::default().show(ctx, |ui| {
             if ui.button("Back to Main").clicked() {
                 self.current_view = CurrentView::Main;
