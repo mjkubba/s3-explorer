@@ -5,6 +5,7 @@ mod aws;
 mod config;
 mod sync;
 mod ui;
+mod error_handling;
 
 fn main() {
     // Initialize logging

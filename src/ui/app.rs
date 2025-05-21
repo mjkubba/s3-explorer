@@ -11,6 +11,7 @@ pub struct S3SyncApp {
     folder_list: FolderList,
     bucket_view: BucketView,
     settings_view: SettingsView,
+    progress_view: ProgressView,
     current_view: CurrentView,
 }
 
@@ -18,6 +19,7 @@ pub struct S3SyncApp {
 enum CurrentView {
     Main,
     Settings,
+    Progress,
 }
 
 impl Default for S3SyncApp {
@@ -42,6 +44,7 @@ impl epi::App for S3SyncApp {
         match self.current_view {
             CurrentView::Main => self.render_main_view(ctx),
             CurrentView::Settings => self.render_settings_view(ctx),
+            CurrentView::Progress => self.render_progress_view(ctx),
         }
     }
 }
@@ -95,8 +98,28 @@ impl S3SyncApp {
         egui::TopBottomPanel::bottom("status_bar").show(ctx, |ui| {
             ui.horizontal(|ui| {
                 ui.label("Status: Ready");
+                
+                // Add a button to show/hide progress
+                if ui.button(if self.show_progress { "Hide Progress" } else { "Show Progress" }).clicked() {
+                    self.show_progress = !self.show_progress;
+                }
             });
         });
+        
+        // Show progress panel if needed
+        if self.show_progress {
+            egui::Window::new("Progress")
+                .collapsible(true)
+                .resizable(true)
+                .default_size([400.0, 300.0])
+                .show(ctx, |ui| {
+                    self.progress_view.ui(ui);
+                    
+                    if ui.button("Close").clicked() {
+                        self.show_progress = false;
+                    }
+                });
+        }
     }
     
     /// Render the settings view
