@@ -12,6 +12,7 @@ pub struct S3SyncApp {
     bucket_view: BucketView,
     settings_view: SettingsView,
     progress_view: ProgressView,
+    filter_view: Option<FilterView>,
     current_view: CurrentView,
 }
 
@@ -20,6 +21,7 @@ enum CurrentView {
     Main,
     Settings,
     Progress,
+    Filters,
 }
 
 impl Default for S3SyncApp {
@@ -45,6 +47,7 @@ impl epi::App for S3SyncApp {
             CurrentView::Main => self.render_main_view(ctx),
             CurrentView::Settings => self.render_settings_view(ctx),
             CurrentView::Progress => self.render_progress_view(ctx),
+            CurrentView::Filters => self.render_filters_view(ctx),
         }
     }
 }
@@ -71,6 +74,11 @@ impl S3SyncApp {
                     }
                     if ui.button("Stop All").clicked() {
                         // TODO: Implement stop all functionality
+                        ui.close_menu();
+                    }
+                    
+                    if ui.button("Filters").clicked() {
+                        self.current_view = CurrentView::Filters;
                         ui.close_menu();
                     }
                 });
@@ -102,6 +110,11 @@ impl S3SyncApp {
                 // Add a button to show/hide progress
                 if ui.button(if self.show_progress { "Hide Progress" } else { "Show Progress" }).clicked() {
                     self.show_progress = !self.show_progress;
+                }
+                
+                // Add a button to show filters
+                if ui.button("Filters").clicked() {
+                    self.current_view = CurrentView::Filters;
                 }
             });
         });
