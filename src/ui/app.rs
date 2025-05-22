@@ -27,6 +27,7 @@ pub struct S3SyncApp {
     rt: Arc<Handle>,
     status_tx: mpsc::Sender<StatusMessage>,
     status_rx: mpsc::Receiver<StatusMessage>,
+    pending_bucket_selection: Option<String>,
 }
 
 /// Status message for communication between threads
@@ -35,6 +36,7 @@ enum StatusMessage {
     Success(String),
     Error(String),
     BucketList(Vec<String>),
+    ObjectList(Vec<super::bucket_view::S3Object>),
 }
 
 /// Enum to track which view is currently active
@@ -77,6 +79,7 @@ impl Default for S3SyncApp {
             rt: Arc::new(Handle::current()),
             status_tx,
             status_rx,
+            pending_bucket_selection: None,
         }
     }
 }
@@ -158,6 +161,36 @@ impl S3SyncApp {
         });
     }
     
+    /// Load objects from a bucket
+    fn load_objects(&mut self, bucket_name: &str) {
+        let auth_clone = self.aws_auth.clone();
+        let rt = self.rt.clone();
+        let tx = self.status_tx.clone();
+        let bucket = bucket_name.to_string();
+        
+        // Set loading state
+        self.bucket_view.set_loading(true);
+        self.set_status_info(&format!("Loading objects from {}...", bucket_name));
+        
+        // Spawn a task to load objects
+        rt.spawn(async move {
+            debug!("Starting async task to load objects from bucket: {}", bucket);
+            // Create a new BucketView just for this operation
+            let mut bucket_view = BucketView::default();
+            match bucket_view.load_objects(auth_clone, &bucket).await {
+                Ok(objects) => {
+                    debug!("Successfully loaded {} objects from bucket {}", objects.len(), bucket);
+                    let _ = tx.send(StatusMessage::Success(format!("Loaded {} objects from {}", objects.len(), bucket)));
+                    let _ = tx.send(StatusMessage::ObjectList(objects));
+                },
+                Err(e) => {
+                    error!("Failed to load objects from bucket {}: {}", bucket, e);
+                    let _ = tx.send(StatusMessage::Error(format!("Failed to load objects from {}: {}", bucket, e)));
+                }
+            }
+        });
+    }
+    
     /// Process any pending status messages
     fn process_status_messages(&mut self) {
         while let Ok(msg) = self.status_rx.try_recv() {
@@ -166,12 +199,19 @@ impl S3SyncApp {
                 StatusMessage::Success(text) => self.set_status_success(&text),
                 StatusMessage::Error(text) => self.set_status_error(&text),
                 StatusMessage::BucketList(buckets) => self.bucket_view.set_buckets(buckets),
+                StatusMessage::ObjectList(objects) => self.bucket_view.set_objects(objects),
             }
         }
         
         // Clear loading state if there are no more messages
         if self.bucket_view.is_loading() && self.status_rx.try_recv().is_err() {
             self.bucket_view.set_loading(false);
+        }
+        
+        // Process any pending bucket selection
+        if let Some(bucket) = self.pending_bucket_selection.take() {
+            *self.bucket_view.selected_bucket_mut() = Some(bucket.clone());
+            self.load_objects(&bucket);
         }
     }
     
@@ -243,12 +283,114 @@ impl S3SyncApp {
             });
             
         egui::CentralPanel::default().show(ctx, |ui| {
-            self.bucket_view.ui(ui);
-            
-            // Add a refresh button
-            if ui.button("Refresh Buckets").clicked() {
-                self.load_buckets();
-            }
+            // Render the bucket view
+            ui.vertical(|ui| {
+                ui.heading("S3 Buckets");
+                
+                // Show loading indicator or error message
+                if self.bucket_view.is_loading() {
+                    ui.horizontal(|ui| {
+                        ui.label("⏳ Loading...");
+                    });
+                } else if let Some(error) = self.bucket_view.error_message() {
+                    ui.colored_label(egui::Color32::RED, error);
+                    if ui.button("Clear Error").clicked() {
+                        self.bucket_view.clear_error();
+                    }
+                }
+                
+                // Bucket selection
+                ui.horizontal(|ui| {
+                    let mut selected_bucket = self.bucket_view.selected_bucket();
+                    let buckets = self.bucket_view.buckets().to_vec(); // Clone to avoid borrow issues
+                    
+                    egui::ComboBox::from_label("Select Bucket")
+                        .selected_text(selected_bucket.as_deref().unwrap_or("No bucket selected"))
+                        .show_ui(ui, |ui| {
+                            for bucket in &buckets {
+                                let bucket_str = bucket.clone();
+                                if ui.selectable_label(selected_bucket.as_deref() == Some(bucket), bucket).clicked() {
+                                    // Store the selection for processing after the UI rendering
+                                    self.pending_bucket_selection = Some(bucket_str);
+                                }
+                            }
+                        });
+                        
+                    if ui.button("Refresh Buckets").clicked() {
+                        self.load_buckets();
+                    }
+                    
+                    if let Some(bucket) = self.bucket_view.selected_bucket() {
+                        if ui.button("Load Objects").clicked() {
+                            self.load_objects(&bucket);
+                        }
+                    }
+                });
+                
+                ui.separator();
+                
+                // Filter
+                ui.horizontal(|ui| {
+                    ui.label("Filter:");
+                    ui.text_edit_singleline(self.bucket_view.filter_mut());
+                    
+                    if ui.button("Clear").clicked() {
+                        self.bucket_view.clear_filter();
+                    }
+                });
+                
+                ui.separator();
+                
+                // Object list
+                if self.bucket_view.selected_bucket().is_some() {
+                    egui::ScrollArea::vertical().show(ui, |ui| {
+                        // Table header
+                        ui.horizontal(|ui| {
+                            ui.label(egui::RichText::new("Name").strong());
+                            ui.add_space(200.0);
+                            ui.label(egui::RichText::new("Size").strong());
+                            ui.add_space(100.0);
+                            ui.label(egui::RichText::new("Last Modified").strong());
+                        });
+                        
+                        ui.separator();
+                        
+                        // Table rows
+                        let filter = self.bucket_view.filter().to_lowercase();
+                        let objects = self.bucket_view.objects().to_vec(); // Clone to avoid borrow issues
+                        
+                        if objects.is_empty() {
+                            ui.label("No objects found in this bucket");
+                        } else {
+                            for object in &objects {
+                                if !filter.is_empty() && !object.key.to_lowercase().contains(&filter) {
+                                    continue;
+                                }
+                                
+                                ui.horizontal(|ui| {
+                                    let icon = if object.is_directory { "📁 " } else { "📄 " };
+                                    ui.label(format!("{}{}", icon, object.key));
+                                    ui.add_space(200.0 - object.key.len() as f32 * 7.0);
+                                    
+                                    let size_str = if object.is_directory {
+                                        "-".to_string()
+                                    } else {
+                                        super::bucket_view::format_size(object.size)
+                                    };
+                                    
+                                    ui.label(size_str);
+                                    ui.add_space(100.0);
+                                    ui.label(&object.last_modified);
+                                });
+                                
+                                ui.separator();
+                            }
+                        }
+                    });
+                } else {
+                    ui.label("Select a bucket to view objects");
+                }
+            });
         });
         
         egui::TopBottomPanel::bottom("status_bar").show(ctx, |ui| {

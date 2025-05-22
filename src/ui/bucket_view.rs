@@ -17,100 +17,17 @@ pub struct BucketView {
 
 /// Represents an object in an S3 bucket
 #[derive(Clone)]
-struct S3Object {
-    key: String,
-    size: u64,
-    last_modified: String,
-    is_directory: bool,
+pub struct S3Object {
+    pub key: String,
+    pub size: u64,
+    pub last_modified: String,
+    pub is_directory: bool,
 }
 
 impl BucketView {
     /// Render the bucket view UI
-    pub fn ui(&mut self, ui: &mut egui::Ui) {
-        ui.heading("S3 Buckets");
-        
-        // Show loading indicator or error message
-        if self.loading {
-            ui.horizontal(|ui| {
-                ui.label("⏳ Loading buckets...");
-            });
-        } else if let Some(error) = &self.error_message {
-            ui.colored_label(egui::Color32::RED, error);
-            if ui.button("Clear Error").clicked() {
-                self.error_message = None;
-            }
-        }
-        
-        // Bucket selection
-        egui::ComboBox::from_label("Select Bucket")
-            .selected_text(self.selected_bucket.as_deref().unwrap_or("No bucket selected"))
-            .show_ui(ui, |ui| {
-                for bucket in &self.buckets {
-                    ui.selectable_value(&mut self.selected_bucket, Some(bucket.clone()), bucket);
-                }
-            });
-        
-        ui.separator();
-        
-        // Filter
-        ui.horizontal(|ui| {
-            ui.label("Filter:");
-            ui.text_edit_singleline(&mut self.filter);
-            
-            if ui.button("Clear").clicked() {
-                self.filter.clear();
-            }
-        });
-        
-        // Object list
-        ui.separator();
-        
-        if self.selected_bucket.is_some() {
-            if ui.button("Load Objects").clicked() {
-                // This will be handled by the parent component
-                info!("Load objects requested for bucket: {}", self.selected_bucket.as_ref().unwrap());
-            }
-            
-            egui::ScrollArea::vertical().show(ui, |ui| {
-                // Table header
-                ui.horizontal(|ui| {
-                    ui.label(egui::RichText::new("Name").strong());
-                    ui.add_space(200.0);
-                    ui.label(egui::RichText::new("Size").strong());
-                    ui.add_space(100.0);
-                    ui.label(egui::RichText::new("Last Modified").strong());
-                });
-                
-                ui.separator();
-                
-                // Table rows
-                for object in &self.objects {
-                    if !self.filter.is_empty() && !object.key.contains(&self.filter) {
-                        continue;
-                    }
-                    
-                    ui.horizontal(|ui| {
-                        let icon = if object.is_directory { "📁 " } else { "📄 " };
-                        ui.label(format!("{}{}", icon, object.key));
-                        ui.add_space(200.0 - object.key.len() as f32 * 7.0);
-                        
-                        let size_str = if object.is_directory {
-                            "-".to_string()
-                        } else {
-                            format_size(object.size)
-                        };
-                        
-                        ui.label(size_str);
-                        ui.add_space(100.0);
-                        ui.label(&object.last_modified);
-                    });
-                    
-                    ui.separator();
-                }
-            });
-        } else {
-            ui.label("Select a bucket to view objects");
-        }
+    pub fn ui(&mut self, _ui: &mut egui::Ui) {
+        // This is now handled by the app.rs file
     }
     
     /// Set the list of buckets
@@ -133,6 +50,16 @@ impl BucketView {
         self.loading = false;
     }
     
+    /// Clear the error message
+    pub fn clear_error(&mut self) {
+        self.error_message = None;
+    }
+    
+    /// Get the error message
+    pub fn error_message(&self) -> Option<&String> {
+        self.error_message.as_ref()
+    }
+    
     /// Set loading state
     pub fn set_loading(&mut self, loading: bool) {
         debug!("Setting loading state: {}", loading);
@@ -147,6 +74,36 @@ impl BucketView {
     /// Get the selected bucket
     pub fn selected_bucket(&self) -> Option<String> {
         self.selected_bucket.clone()
+    }
+    
+    /// Get a mutable reference to the selected bucket
+    pub fn selected_bucket_mut(&mut self) -> &mut Option<String> {
+        &mut self.selected_bucket
+    }
+    
+    /// Get the filter string
+    pub fn filter(&self) -> &str {
+        &self.filter
+    }
+    
+    /// Get a mutable reference to the filter string
+    pub fn filter_mut(&mut self) -> &mut String {
+        &mut self.filter
+    }
+    
+    /// Clear the filter
+    pub fn clear_filter(&mut self) {
+        self.filter.clear();
+    }
+    
+    /// Get the list of buckets
+    pub fn buckets(&self) -> &[String] {
+        &self.buckets
+    }
+    
+    /// Get the list of objects
+    pub fn objects(&self) -> &[S3Object] {
+        &self.objects
     }
     
     /// Load buckets from AWS
@@ -215,7 +172,7 @@ impl BucketView {
     }
     
     /// Load objects from the selected bucket
-    pub async fn load_objects(&mut self, aws_auth: Arc<Mutex<AwsAuth>>, bucket: &str) -> Result<(), String> {
+    pub async fn load_objects(&mut self, aws_auth: Arc<Mutex<AwsAuth>>, bucket: &str) -> Result<Vec<S3Object>, String> {
         debug!("Loading objects from bucket: {}", bucket);
         self.loading = true;
         
@@ -311,9 +268,9 @@ impl BucketView {
                 });
                 
                 info!("Listed {} objects in bucket {}", s3_objects.len(), bucket);
-                self.objects = s3_objects;
+                self.objects = s3_objects.clone();
                 self.loading = false;
-                Ok(())
+                Ok(s3_objects)
             },
             Err(err) => {
                 let sdk_error = err.into_service_error();
@@ -330,7 +287,7 @@ impl BucketView {
 }
 
 /// Format file size in human-readable format
-fn format_size(size: u64) -> String {
+pub fn format_size(size: u64) -> String {
     const KB: u64 = 1024;
     const MB: u64 = KB * 1024;
     const GB: u64 = MB * 1024;
