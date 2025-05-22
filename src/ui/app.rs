@@ -5,6 +5,8 @@ use log::info;
 use super::bucket_view::BucketView;
 use super::folder_list::FolderList;
 use super::settings::SettingsView;
+use super::progress::ProgressView;
+use super::filter_view::FilterView;
 
 /// Main application state
 pub struct S3SyncApp {
@@ -14,6 +16,7 @@ pub struct S3SyncApp {
     progress_view: ProgressView,
     filter_view: Option<FilterView>,
     current_view: CurrentView,
+    show_progress: bool,
 }
 
 /// Enum to track which view is currently active
@@ -32,7 +35,10 @@ impl Default for S3SyncApp {
             folder_list: FolderList::default(),
             bucket_view: BucketView::default(),
             settings_view: SettingsView::default(),
+            progress_view: ProgressView::default(),
+            filter_view: None,
             current_view: CurrentView::Main,
+            show_progress: false,
         }
     }
 }
@@ -133,6 +139,32 @@ impl S3SyncApp {
                     }
                 });
         }
+    }
+    
+    /// Render the progress view
+    fn render_progress_view(&mut self, ctx: &egui::Context) {
+        egui::CentralPanel::default().show(ctx, |ui| {
+            if ui.button("Back to Main").clicked() {
+                self.current_view = CurrentView::Main;
+            }
+            
+            self.progress_view.ui(ui);
+        });
+    }
+    
+    /// Render the filters view
+    fn render_filters_view(&mut self, ctx: &egui::Context) {
+        egui::CentralPanel::default().show(ctx, |ui| {
+            if ui.button("Back to Main").clicked() {
+                self.current_view = CurrentView::Main;
+            }
+            
+            if let Some(filter_view) = &mut self.filter_view {
+                filter_view.ui(ui);
+            } else {
+                ui.label("Filter view not initialized");
+            }
+        });
     }
     
     /// Render the settings view

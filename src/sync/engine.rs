@@ -2,6 +2,7 @@ use anyhow::{anyhow, Result};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use walkdir::WalkDir;
+use log::{error, info};
 
 use crate::aws::auth::AwsAuth;
 use crate::aws::bucket::BucketManager;
@@ -84,59 +85,8 @@ impl SyncEngine {
             return Err(anyhow!("Bucket {} does not exist", bucket));
         }
         
-<<<<<<< HEAD
         // Calculate differences between local and remote
         let diffs = self.calculate_diffs(&folder.path, bucket, prefix).await?;
-=======
-        // Get the file filter
-        let filter = self.file_filter.lock().unwrap().clone();
-        
-        // Scan local directory
-        info!("Scanning local directory: {}", folder.path.display());
-        let local_files = match scan_local_directory(&folder.path, Some(&filter)) {
-            Ok(files) => files,
-            Err(e) => {
-                error!("Failed to scan local directory: {}", e);
-                folder.status = SyncStatus::Error(format!("Failed to scan directory: {}", e));
-                return Err(anyhow!("Failed to scan local directory: {}", e));
-            }
-        };
-        
-        // Get S3 objects
-        info!("Listing objects in bucket: {}", bucket);
-        let s3_objects = match self.bucket_manager.list_objects(bucket, prefix).await {
-            Ok(objects) => objects,
-            Err(e) => {
-                error!("Failed to list S3 objects: {}", e);
-                folder.status = SyncStatus::Error(format!("Failed to list S3 objects: {}", e));
-                return Err(anyhow!("Failed to list S3 objects: {}", e));
-            }
-        };
-        
-        // Convert S3 objects to the same format as local files
-        let mut s3_files = HashMap::new();
-        for obj in s3_objects {
-            // If prefix is specified, remove it from the key to get the relative path
-            let key = if let Some(p) = prefix {
-                if obj.key.starts_with(p) {
-                    obj.key[p.len()..].trim_start_matches('/').to_string()
-                } else {
-                    obj.key
-                }
-            } else {
-                obj.key
-            };
-            
-            // Use size and etag as a simple hash
-            let hash = obj.etag.unwrap_or_else(|| "unknown".to_string());
-            s3_files.insert(key, (obj.size as u64, hash));
-        }
-        
-        // Compare files and determine actions
-        let diffs = compare_files(&local_files, &s3_files, delete_removed);
-        
-        info!("Found {} differences to sync", diffs.len());
->>>>>>> 3e8af65 (feat(sync): Add file filtering capabilities)
         
         // Process each difference
         for diff in diffs {
