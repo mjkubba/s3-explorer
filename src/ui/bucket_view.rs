@@ -1,8 +1,8 @@
 use eframe::egui;
 use std::sync::{Arc, Mutex};
 use log::{info, error, debug};
-use std::collections::HashMap;
-use chrono::{DateTime, Utc, TimeZone};
+use std::collections::{HashMap, HashSet};
+use chrono::{DateTime, Utc};
 
 use crate::aws::auth::AwsAuth;
 
@@ -16,6 +16,7 @@ pub struct BucketView {
     loading: bool,
     error_message: Option<String>,
     bucket_regions: HashMap<String, String>,
+    selected_objects: HashSet<String>,
 }
 
 /// Represents an object in an S3 bucket
@@ -44,6 +45,7 @@ impl BucketView {
     pub fn set_objects(&mut self, objects: Vec<S3Object>) {
         debug!("Setting object list: {} objects", objects.len());
         self.objects = objects;
+        self.selected_objects.clear();
     }
     
     /// Set an error message
@@ -118,6 +120,44 @@ impl BucketView {
     pub fn set_bucket_region(&mut self, bucket: String, region: String) {
         debug!("Setting region for bucket {}: {}", bucket, region);
         self.bucket_regions.insert(bucket, region);
+    }
+    
+    /// Select an object
+    pub fn select_object(&mut self, key: &str) {
+        self.selected_objects.insert(key.to_string());
+    }
+    
+    /// Deselect an object
+    pub fn deselect_object(&mut self, key: &str) {
+        self.selected_objects.remove(key);
+    }
+    
+    /// Check if an object is selected
+    pub fn is_object_selected(&self, key: &str) -> bool {
+        self.selected_objects.contains(key)
+    }
+    
+    /// Get the selected objects
+    pub fn selected_objects(&self) -> Vec<&S3Object> {
+        self.objects.iter()
+            .filter(|obj| self.selected_objects.contains(&obj.key))
+            .collect()
+    }
+    
+    /// Select all visible objects (those that match the current filter)
+    pub fn select_all_visible(&mut self) {
+        let filter = self.filter.to_lowercase();
+        
+        for obj in &self.objects {
+            if filter.is_empty() || obj.key.to_lowercase().contains(&filter) {
+                self.selected_objects.insert(obj.key.clone());
+            }
+        }
+    }
+    
+    /// Clear all selections
+    pub fn clear_selection(&mut self) {
+        self.selected_objects.clear();
     }
     
     /// Load buckets from AWS

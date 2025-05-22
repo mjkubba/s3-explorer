@@ -2,13 +2,15 @@ use eframe::egui;
 use std::path::{Path, PathBuf};
 use std::fs;
 use log::{debug, error};
-use chrono::{DateTime, Local};
+use chrono::{DateTime, Utc};
+use std::collections::HashSet;
 
 /// Component for displaying the contents of a local folder
 #[derive(Default)]
 pub struct FolderContent {
     files: Vec<FileEntry>,
     filter: String,
+    selected_files: HashSet<PathBuf>,
 }
 
 /// Represents a file or directory in the folder
@@ -26,7 +28,7 @@ impl FolderContent {
     pub fn ui(&mut self, ui: &mut egui::Ui) {
         ui.heading("Local Files");
         
-        // Filter
+        // Filter and selection controls
         ui.horizontal(|ui| {
             ui.label("Filter:");
             ui.text_edit_singleline(&mut self.filter);
@@ -34,6 +36,18 @@ impl FolderContent {
             if ui.button("Clear").clicked() {
                 self.filter.clear();
             }
+            
+            ui.separator();
+            
+            if ui.button("Select All").clicked() {
+                self.select_all_visible();
+            }
+            
+            if ui.button("Deselect All").clicked() {
+                self.selected_files.clear();
+            }
+            
+            ui.label(format!("{} selected", self.selected_files.len()));
         });
         
         ui.separator();
@@ -42,8 +56,9 @@ impl FolderContent {
         egui::ScrollArea::vertical().show(ui, |ui| {
             // Table header
             ui.horizontal(|ui| {
+                ui.checkbox(&mut false, ""); // Placeholder for alignment
                 ui.label(egui::RichText::new("Name").strong());
-                ui.add_space(200.0);
+                ui.add_space(180.0);
                 ui.label(egui::RichText::new("Size").strong());
                 ui.add_space(100.0);
                 ui.label(egui::RichText::new("Last Modified").strong());
@@ -62,10 +77,35 @@ impl FolderContent {
                         continue;
                     }
                     
+                    let is_selected = self.selected_files.contains(&file.path);
+                    let mut selected = is_selected;
+                    
                     ui.horizontal(|ui| {
+                        if ui.checkbox(&mut selected, "").changed() {
+                            if selected {
+                                self.selected_files.insert(file.path.clone());
+                            } else {
+                                self.selected_files.remove(&file.path);
+                            }
+                        }
+                        
                         let icon = if file.is_directory { "📁 " } else { "📄 " };
-                        ui.label(format!("{}{}", icon, file.name));
-                        ui.add_space(200.0 - file.name.len() as f32 * 7.0);
+                        let text = format!("{}{}", icon, file.name);
+                        let text = if is_selected {
+                            egui::RichText::new(text).strong()
+                        } else {
+                            egui::RichText::new(text)
+                        };
+                        
+                        if ui.label(text).clicked() {
+                            if self.selected_files.contains(&file.path) {
+                                self.selected_files.remove(&file.path);
+                            } else {
+                                self.selected_files.insert(file.path.clone());
+                            }
+                        }
+                        
+                        ui.add_space(180.0 - file.name.len() as f32 * 7.0);
                         
                         let size_str = if file.is_directory {
                             "-".to_string()
@@ -88,6 +128,7 @@ impl FolderContent {
     pub fn load_folder(&mut self, path: &Path) {
         debug!("Loading folder contents: {}", path.display());
         self.files.clear();
+        self.selected_files.clear();
         
         match fs::read_dir(path) {
             Ok(entries) => {
@@ -104,7 +145,7 @@ impl FolderContent {
                                 let last_modified = match metadata.modified() {
                                     Ok(time) => {
                                         // Convert system time to chrono DateTime
-                                        let datetime: DateTime<Local> = time.into();
+                                        let datetime: DateTime<Utc> = time.into();
                                         datetime.format("%Y-%m-%d %H:%M:%S").to_string()
                                     },
                                     Err(_) => "Unknown".to_string(),
@@ -139,6 +180,29 @@ impl FolderContent {
                 error!("Failed to read directory {}: {}", path.display(), e);
             }
         }
+    }
+    
+    /// Select all visible files (those that match the current filter)
+    fn select_all_visible(&mut self) {
+        let filter = self.filter.to_lowercase();
+        
+        for file in &self.files {
+            if filter.is_empty() || file.name.to_lowercase().contains(&filter) {
+                self.selected_files.insert(file.path.clone());
+            }
+        }
+    }
+    
+    /// Get the selected files
+    pub fn selected_files(&self) -> Vec<&FileEntry> {
+        self.files.iter()
+            .filter(|file| self.selected_files.contains(&file.path))
+            .collect()
+    }
+    
+    /// Clear all selections
+    pub fn clear_selection(&mut self) {
+        self.selected_files.clear();
     }
 }
 
