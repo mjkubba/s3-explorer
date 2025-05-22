@@ -105,12 +105,8 @@ impl S3SyncApp {
                 debug!("No secret key found in keyring");
                 false
             },
-            (Err(e), _) => {
-                debug!("Error loading access key from keyring: {}", e);
-                false
-            },
-            (_, Err(e)) => {
-                debug!("Error loading secret key from keyring: {}", e);
+            (Err(e), _) | (_, Err(e)) => {
+                error!("Error loading credentials from keyring: {}", e);
                 false
             },
             _ => {
@@ -125,73 +121,14 @@ impl S3SyncApp {
         debug!("Saving credentials to keyring");
         match CredentialManager::save_credentials(access_key, secret_key) {
             Ok(_) => {
-                debug!("Successfully saved credentials to keyring");
+                debug!("Credentials saved to keyring");
                 true
             },
             Err(e) => {
-                error!("Failed to save credentials to keyring: {}", e);
+                error!("Error saving credentials to keyring: {}", e);
                 false
             }
         }
-    }
-    
-    /// Load buckets from AWS
-    fn load_buckets(&mut self) {
-        let auth_clone = self.aws_auth.clone();
-        let rt = self.rt.clone();
-        let tx = self.status_tx.clone();
-        
-        // Set loading state
-        self.bucket_view.set_loading(true);
-        self.set_status_info("Loading buckets...");
-        
-        // Spawn a task to load buckets
-        rt.spawn(async move {
-            debug!("Starting async task to load buckets");
-            // Create a new BucketView just for this operation
-            let mut bucket_view = BucketView::default();
-            match bucket_view.load_buckets(auth_clone).await {
-                Ok(buckets) => {
-                    debug!("Successfully loaded {} buckets", buckets.len());
-                    let _ = tx.send(StatusMessage::Success(format!("Loaded {} buckets", buckets.len())));
-                    let _ = tx.send(StatusMessage::BucketList(buckets));
-                },
-                Err(e) => {
-                    error!("Failed to load buckets: {}", e);
-                    let _ = tx.send(StatusMessage::Error(format!("Failed to load buckets: {}", e)));
-                }
-            }
-        });
-    }
-    
-    /// Load objects from a bucket
-    fn load_objects(&mut self, bucket_name: &str) {
-        let auth_clone = self.aws_auth.clone();
-        let rt = self.rt.clone();
-        let tx = self.status_tx.clone();
-        let bucket = bucket_name.to_string();
-        
-        // Set loading state
-        self.bucket_view.set_loading(true);
-        self.set_status_info(&format!("Loading objects from {}...", bucket_name));
-        
-        // Spawn a task to load objects
-        rt.spawn(async move {
-            debug!("Starting async task to load objects from bucket: {}", bucket);
-            // Create a new BucketView just for this operation
-            let mut bucket_view = BucketView::default();
-            match bucket_view.load_objects(auth_clone, &bucket).await {
-                Ok(objects) => {
-                    debug!("Successfully loaded {} objects from bucket {}", objects.len(), bucket);
-                    let _ = tx.send(StatusMessage::Success(format!("Loaded {} objects from {}", objects.len(), bucket)));
-                    let _ = tx.send(StatusMessage::ObjectList(objects));
-                },
-                Err(e) => {
-                    error!("Failed to load objects from bucket {}: {}", bucket, e);
-                    let _ = tx.send(StatusMessage::Error(format!("Failed to load objects from {}: {}", bucket, e)));
-                }
-            }
-        });
     }
     
     /// Process any pending status messages
@@ -299,120 +236,136 @@ impl S3SyncApp {
                 .resizable(true)
                 .default_height(ui.available_height() / 2.0)
                 .show_inside(ui, |ui| {
-                    // Render the bucket view
-                    ui.vertical(|ui| {
-                        ui.heading("S3 Buckets");
-                        
-                        // Show loading indicator or error message
-                        if self.bucket_view.is_loading() {
-                            ui.horizontal(|ui| {
-                                ui.label("⏳ Loading...");
+                    ui.heading("S3 Bucket Objects");
+                    
+                    // Bucket selector
+                    ui.horizontal(|ui| {
+                        ui.label("Bucket:");
+                        egui::ComboBox::from_id_source("bucket_selector")
+                            .selected_text(self.bucket_view.selected_bucket().unwrap_or_else(|| "Select a bucket".to_string()))
+                            .show_ui(ui, |ui| {
+                                let buckets = self.bucket_view.buckets().to_vec(); // Clone to avoid borrow issues
+                                for bucket in buckets {
+                                    let is_selected = self.bucket_view.selected_bucket().as_ref().map_or(false, |s| s == &bucket);
+                                    if ui.selectable_label(is_selected, &bucket).clicked() {
+                                        let bucket_clone = bucket.clone();
+                                        *self.bucket_view.selected_bucket_mut() = Some(bucket.clone());
+                                        self.load_objects(&bucket_clone);
+                                    }
+                                }
                             });
-                        } else if let Some(error) = self.bucket_view.error_message() {
-                            ui.colored_label(egui::Color32::RED, error);
-                            if ui.button("Clear Error").clicked() {
-                                self.bucket_view.clear_error();
-                            }
+                            
+                        if self.bucket_view.is_loading() {
+                            ui.label("Loading...");
                         }
                         
-                        // Bucket selection
-                        ui.horizontal(|ui| {
-                            let selected_bucket = self.bucket_view.selected_bucket();
-                            let buckets = self.bucket_view.buckets().to_vec(); // Clone to avoid borrow issues
-                            
-                            egui::ComboBox::from_label("Select Bucket")
-                                .selected_text(selected_bucket.as_deref().unwrap_or("No bucket selected"))
-                                .show_ui(ui, |ui| {
-                                    for bucket in &buckets {
-                                        let bucket_str = bucket.clone();
-                                        if ui.selectable_label(selected_bucket.as_deref() == Some(bucket), bucket).clicked() {
-                                            // Store the selection for processing after the UI rendering
-                                            self.pending_bucket_selection = Some(bucket_str);
-                                        }
-                                    }
-                                });
-                                
-                            if ui.button("Refresh Buckets").clicked() {
+                        if ui.button("Refresh").clicked() {
+                            if let Some(bucket) = self.bucket_view.selected_bucket() {
+                                self.load_objects(&bucket);
+                            } else {
                                 self.load_buckets();
                             }
-                            
-                            if let Some(bucket) = self.bucket_view.selected_bucket() {
-                                if ui.button("Load Objects").clicked() {
-                                    self.load_objects(&bucket);
-                                }
-                            }
-                        });
-                        
-                        ui.separator();
-                        
-                        // Filter
-                        ui.horizontal(|ui| {
-                            ui.label("Filter:");
-                            ui.text_edit_singleline(self.bucket_view.filter_mut());
-                            
-                            if ui.button("Clear").clicked() {
-                                self.bucket_view.clear_filter();
-                            }
-                        });
-                        
-                        ui.separator();
-                        
-                        // Object list
-                        if self.bucket_view.selected_bucket().is_some() {
-                            egui::ScrollArea::vertical().show(ui, |ui| {
-                                // Table header
-                                ui.horizontal(|ui| {
-                                    ui.label(egui::RichText::new("Name").strong());
-                                    ui.add_space(200.0);
-                                    ui.label(egui::RichText::new("Size").strong());
-                                    ui.add_space(100.0);
-                                    ui.label(egui::RichText::new("Last Modified").strong());
-                                });
-                                
-                                ui.separator();
-                                
-                                // Table rows
-                                let filter = self.bucket_view.filter().to_lowercase();
-                                let objects = self.bucket_view.objects().to_vec(); // Clone to avoid borrow issues
-                                
-                                if objects.is_empty() {
-                                    ui.label("No objects found in this bucket");
-                                } else {
-                                    for object in &objects {
-                                        if !filter.is_empty() && !object.key.to_lowercase().contains(&filter) {
-                                            continue;
-                                        }
-                                        
-                                        ui.horizontal(|ui| {
-                                            let icon = if object.is_directory { "📁 " } else { "📄 " };
-                                            ui.label(format!("{}{}", icon, object.key));
-                                            ui.add_space(200.0 - object.key.len() as f32 * 7.0);
-                                            
-                                            let size_str = if object.is_directory {
-                                                "-".to_string()
-                                            } else {
-                                                super::bucket_view::format_size(object.size)
-                                            };
-                                            
-                                            ui.label(size_str);
-                                            ui.add_space(100.0);
-                                            ui.label(&object.last_modified);
-                                        });
-                                        
-                                        ui.separator();
-                                    }
-                                }
-                            });
-                        } else {
-                            ui.label("Select a bucket to view objects");
                         }
                     });
+                    
+                    // Error message
+                    if let Some(error) = self.bucket_view.error_message() {
+                        ui.colored_label(egui::Color32::RED, error);
+                    }
+                    
+                    // Filter
+                    ui.horizontal(|ui| {
+                        ui.label("Filter:");
+                        ui.text_edit_singleline(self.bucket_view.filter_mut());
+                        
+                        if ui.button("Clear").clicked() {
+                            self.bucket_view.clear_filter();
+                        }
+                    });
+                    
+                    ui.separator();
+                    
+                    // Object list
+                    if self.bucket_view.selected_bucket().is_some() {
+                        egui::ScrollArea::vertical().show(ui, |ui| {
+                            // Table header
+                            ui.horizontal(|ui| {
+                                ui.label(egui::RichText::new("Name").strong());
+                                ui.add_space(200.0);
+                                ui.label(egui::RichText::new("Size").strong());
+                                ui.add_space(100.0);
+                                ui.label(egui::RichText::new("Last Modified").strong());
+                            });
+                            
+                            ui.separator();
+                            
+                            // Table rows
+                            let filter = self.bucket_view.filter().to_lowercase();
+                            let objects = self.bucket_view.objects().to_vec(); // Clone to avoid borrow issues
+                            
+                            if objects.is_empty() {
+                                ui.label("No objects found in this bucket");
+                            } else {
+                                for object in &objects {
+                                    if !filter.is_empty() && !object.key.to_lowercase().contains(&filter) {
+                                        continue;
+                                    }
+                                    
+                                    ui.horizontal(|ui| {
+                                        let icon = if object.is_directory { "📁 " } else { "📄 " };
+                                        ui.label(format!("{}{}", icon, object.key));
+                                        ui.add_space(200.0 - object.key.len() as f32 * 7.0);
+                                        
+                                        let size_str = if object.is_directory {
+                                            "-".to_string()
+                                        } else {
+                                            super::bucket_view::format_size(object.size)
+                                        };
+                                        
+                                        ui.label(size_str);
+                                        ui.add_space(100.0);
+                                        ui.label(&object.last_modified);
+                                    });
+                                    
+                                    ui.separator();
+                                }
+                            }
+                        });
+                    } else {
+                        ui.label("Select a bucket to view objects");
+                    }
                 });
                 
             // Show folder contents in the bottom panel
             egui::CentralPanel::default().show_inside(ui, |ui| {
                 if let Some(index) = self.folder_list.selected_index {
                     if index < self.folder_list.folders.len() {
+                        // Add transfer buttons between bucket and local views
+                        ui.horizontal(|ui| {
+                            ui.add_space(ui.available_width() / 2.0 - 100.0);
+                            
+                            // Upload button (↑)
+                            if ui.button("⬆️ Upload").clicked() {
+                                if let Some(bucket) = self.bucket_view.selected_bucket() {
+                                    self.upload_selected_files(&bucket);
+                                } else {
+                                    self.set_status_error("Please select a bucket first");
+                                }
+                            }
+                            
+                            ui.add_space(20.0);
+                            
+                            // Download button (↓)
+                            if ui.button("⬇️ Download").clicked() {
+                                if let Some(bucket) = self.bucket_view.selected_bucket() {
+                                    self.download_selected_files(&bucket);
+                                } else {
+                                    self.set_status_error("Please select a bucket first");
+                                }
+                            }
+                        });
+                        
+                        ui.separator();
                         self.folder_content.ui(ui);
                     } else {
                         ui.label("Select a folder to view its contents");
@@ -575,6 +528,101 @@ impl S3SyncApp {
             }
         });
     }
+    
+    /// Load buckets from AWS
+    fn load_buckets(&mut self) {
+        let auth_clone = self.aws_auth.clone();
+        let rt = self.rt.clone();
+        let tx = self.status_tx.clone();
+        
+        // Set loading state
+        self.bucket_view.set_loading(true);
+        self.set_status_info("Loading buckets...");
+        
+        // Spawn a task to load buckets
+        rt.spawn(async move {
+            debug!("Starting async task to load buckets");
+            let mut bucket_view = BucketView::default();
+            match bucket_view.load_buckets(auth_clone).await {
+                Ok(buckets) => {
+                    debug!("Successfully loaded {} buckets", buckets.len());
+                    let _ = tx.send(StatusMessage::Success(format!("Loaded {} buckets", buckets.len())));
+                    let _ = tx.send(StatusMessage::BucketList(buckets));
+                },
+                Err(e) => {
+                    error!("Failed to load buckets: {}", e);
+                    let _ = tx.send(StatusMessage::Error(format!("Failed to load buckets: {}", e)));
+                }
+            }
+        });
+    }
+    
+    /// Load objects from a bucket
+    fn load_objects(&mut self, bucket: &str) {
+        let auth_clone = self.aws_auth.clone();
+        let rt = self.rt.clone();
+        let tx = self.status_tx.clone();
+        let bucket = bucket.to_string();
+        
+        // Set loading state
+        self.bucket_view.set_loading(true);
+        self.set_status_info(&format!("Loading objects from bucket {}...", bucket));
+        
+        // Spawn a task to load objects
+        rt.spawn(async move {
+            debug!("Starting async task to load objects from bucket {}", bucket);
+            let mut bucket_view = BucketView::default();
+            match bucket_view.load_objects(auth_clone, &bucket).await {
+                Ok(objects) => {
+                    debug!("Successfully loaded {} objects from bucket {}", objects.len(), bucket);
+                    let _ = tx.send(StatusMessage::Success(format!("Loaded {} objects from bucket {}", objects.len(), bucket)));
+                    let _ = tx.send(StatusMessage::ObjectList(objects));
+                },
+                Err(e) => {
+                    error!("Failed to load objects from bucket {}: {}", bucket, e);
+                    let _ = tx.send(StatusMessage::Error(format!("Failed to load objects from bucket {}: {}", bucket, e)));
+                }
+            }
+        });
+    }
+    
+    /// Upload selected files to S3
+    fn upload_selected_files(&mut self, bucket: &str) {
+        // Get the selected folder path
+        if let Some(index) = self.folder_list.selected_index {
+            if index < self.folder_list.folders.len() {
+                let folder_path = &self.folder_list.folders[index].path;
+                
+                // For now, just show a status message
+                self.set_status_info(&format!("Upload functionality not yet implemented. Would upload from {} to bucket {}", folder_path.display(), bucket));
+                
+                // TODO: Implement actual file upload logic
+                // 1. Get selected files from folder_content
+                // 2. Use AWS SDK to upload files to the selected bucket
+                // 3. Update progress view
+                // 4. Refresh bucket view after upload
+            }
+        }
+    }
+    
+    /// Download selected files from S3
+    fn download_selected_files(&mut self, bucket: &str) {
+        // Get the selected folder path
+        if let Some(index) = self.folder_list.selected_index {
+            if index < self.folder_list.folders.len() {
+                let folder_path = &self.folder_list.folders[index].path;
+                
+                // For now, just show a status message
+                self.set_status_info(&format!("Download functionality not yet implemented. Would download from bucket {} to {}", bucket, folder_path.display()));
+                
+                // TODO: Implement actual file download logic
+                // 1. Get selected objects from bucket_view
+                // 2. Use AWS SDK to download files to the selected folder
+                // 3. Update progress view
+                // 4. Refresh folder_content view after download
+            }
+        }
+    }
 }
 
 impl epi::App for S3SyncApp {
@@ -598,7 +646,7 @@ impl epi::App for S3SyncApp {
         // Load buckets on startup if we have credentials
         let auth = self.aws_auth.lock().unwrap();
         if !auth.is_empty() {
-            drop(auth); // Release the lock before async operation
+            drop(auth); // Release the lock before calling load_buckets
             self.load_buckets();
         }
     }
