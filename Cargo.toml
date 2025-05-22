@@ -32,6 +32,7 @@ walkdir = "2.3.3"     # Directory traversal
 sha2 = "0.10.6"       # Hashing for file comparison
 keyring = "1.2.0"     # Secure credential storage
 glob = "0.3.2"
+native-dialog = "0.6.4"  # File/folder selection dialogs
 
 [build-dependencies]
 winres = "0.1.12"     # Windows resource files

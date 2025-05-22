@@ -1,5 +1,8 @@
 use eframe::egui;
 use std::path::PathBuf;
+use std::sync::mpsc;
+use std::thread;
+use log::{debug, error};
 
 /// Represents a folder to be synced
 #[derive(Clone, Debug)]
@@ -24,6 +27,8 @@ pub enum SyncStatus {
 pub struct FolderList {
     pub folders: Vec<SyncFolder>,
     pub selected_index: Option<usize>,
+    folder_dialog_open: bool,
+    folder_receiver: Option<mpsc::Receiver<Option<PathBuf>>>,
 }
 
 impl FolderList {
@@ -31,11 +36,42 @@ impl FolderList {
     pub fn ui(&mut self, ui: &mut egui::Ui) {
         ui.heading("Folders");
         
-        if ui.button("Add Folder").clicked() {
-            // TODO: Implement folder selection dialog
-            // For now, add a dummy folder for testing
-            self.add_test_folder();
+        // Check if we have a result from the folder dialog
+        if let Some(receiver) = &self.folder_receiver {
+            match receiver.try_recv() {
+                Ok(Some(path)) => {
+                    debug!("Selected folder: {}", path.display());
+                    self.add_folder(path);
+                    self.folder_dialog_open = false;
+                    self.folder_receiver = None;
+                },
+                Ok(None) => {
+                    debug!("Folder selection canceled");
+                    self.folder_dialog_open = false;
+                    self.folder_receiver = None;
+                },
+                Err(mpsc::TryRecvError::Empty) => {
+                    // Still waiting for selection
+                },
+                Err(mpsc::TryRecvError::Disconnected) => {
+                    error!("Folder selection dialog channel disconnected");
+                    self.folder_dialog_open = false;
+                    self.folder_receiver = None;
+                }
+            }
         }
+        
+        ui.horizontal(|ui| {
+            if ui.button("Add Folder").clicked() && !self.folder_dialog_open {
+                self.open_folder_dialog();
+            }
+            
+            if let Some(index) = self.selected_index {
+                if ui.button("Remove Folder").clicked() {
+                    self.remove_folder(index);
+                }
+            }
+        });
         
         ui.separator();
         
@@ -73,34 +109,59 @@ impl FolderList {
                 ui.separator();
             }
         });
+        
+        // Show a message if folder dialog is open
+        if self.folder_dialog_open {
+            ui.label("Folder selection dialog is open...");
+        }
     }
     
-    /// Add a test folder for development purposes
-    fn add_test_folder(&mut self) {
-        let home_dir = dirs::home_dir().unwrap_or_else(|| PathBuf::from("/"));
-        let documents_dir = home_dir.join("Documents");
+    /// Open a folder selection dialog
+    fn open_folder_dialog(&mut self) {
+        debug!("Opening folder selection dialog");
+        self.folder_dialog_open = true;
         
-        self.folders.push(SyncFolder {
-            path: documents_dir,
-            enabled: true,
-            status: SyncStatus::Pending,
-            last_synced: Some(chrono::Local::now()),
+        // Create a channel to receive the selected folder
+        let (sender, receiver) = mpsc::channel();
+        self.folder_receiver = Some(receiver);
+        
+        // Spawn a thread to show the folder dialog
+        thread::spawn(move || {
+            match native_dialog::FileDialog::new()
+                .set_location(&dirs::home_dir().unwrap_or_else(|| PathBuf::from("/")))
+                .show_open_single_dir() {
+                    Ok(Some(path)) => {
+                        let _ = sender.send(Some(path));
+                    },
+                    Ok(None) => {
+                        let _ = sender.send(None);
+                    },
+                    Err(e) => {
+                        error!("Error showing folder dialog: {}", e);
+                        let _ = sender.send(None);
+                    }
+                }
         });
     }
     
     /// Add a new folder to the list
     pub fn add_folder(&mut self, path: PathBuf) {
+        debug!("Adding folder: {}", path.display());
         self.folders.push(SyncFolder {
             path,
             enabled: true,
             status: SyncStatus::Pending,
             last_synced: None,
         });
+        
+        // Select the newly added folder
+        self.selected_index = Some(self.folders.len() - 1);
     }
     
     /// Remove a folder from the list
     pub fn remove_folder(&mut self, index: usize) {
         if index < self.folders.len() {
+            debug!("Removing folder: {}", self.folders[index].path.display());
             self.folders.remove(index);
             if let Some(selected) = self.selected_index {
                 if selected >= index && selected > 0 {
