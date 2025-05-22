@@ -1,6 +1,6 @@
 use eframe::egui;
 use std::sync::{Arc, Mutex};
-use log::{info, error};
+use log::{info, error, debug};
 
 use crate::aws::auth::AwsAuth;
 
@@ -49,18 +49,6 @@ impl BucketView {
                     ui.selectable_value(&mut self.selected_bucket, Some(bucket.clone()), bucket);
                 }
             });
-            
-        ui.horizontal(|ui| {
-            if ui.button("Refresh Buckets").clicked() {
-                // This will be handled by the parent component
-                info!("Refresh buckets requested");
-            }
-            
-            if ui.button("Create Bucket").clicked() {
-                // TODO: Implement bucket creation
-                info!("Create bucket requested");
-            }
-        });
         
         ui.separator();
         
@@ -127,24 +115,33 @@ impl BucketView {
     
     /// Set the list of buckets
     pub fn set_buckets(&mut self, buckets: Vec<String>) {
+        debug!("Setting bucket list: {} buckets", buckets.len());
         self.buckets = buckets;
         self.loading = false;
     }
     
     /// Set the list of objects for the selected bucket
     pub fn set_objects(&mut self, objects: Vec<S3Object>) {
+        debug!("Setting object list: {} objects", objects.len());
         self.objects = objects;
     }
     
     /// Set an error message
     pub fn set_error(&mut self, message: String) {
+        error!("Bucket view error: {}", message);
         self.error_message = Some(message);
         self.loading = false;
     }
     
     /// Set loading state
     pub fn set_loading(&mut self, loading: bool) {
+        debug!("Setting loading state: {}", loading);
         self.loading = loading;
+    }
+    
+    /// Check if the view is in loading state
+    pub fn is_loading(&self) -> bool {
+        self.loading
     }
     
     /// Get the selected bucket
@@ -153,7 +150,8 @@ impl BucketView {
     }
     
     /// Load buckets from AWS
-    pub async fn load_buckets(&mut self, aws_auth: Arc<Mutex<AwsAuth>>) -> Result<(), String> {
+    pub async fn load_buckets(&mut self, aws_auth: Arc<Mutex<AwsAuth>>) -> Result<Vec<String>, String> {
+        debug!("Loading buckets from AWS");
         self.loading = true;
         
         // Clone the auth to avoid holding the lock across await points
@@ -178,6 +176,7 @@ impl BucketView {
         };
         
         // Now use the cloned auth object
+        debug!("Getting AWS client");
         let client = match auth_clone.get_client().await {
             Ok(client) => client,
             Err(e) => {
@@ -188,6 +187,7 @@ impl BucketView {
             }
         };
         
+        debug!("Sending list_buckets request");
         match client.list_buckets().send().await {
             Ok(resp) => {
                 let buckets = resp.buckets().unwrap_or_default();
@@ -197,12 +197,16 @@ impl BucketView {
                     .collect();
                     
                 info!("Listed {} S3 buckets", bucket_names.len());
-                self.buckets = bucket_names;
+                self.buckets = bucket_names.clone();
                 self.loading = false;
-                Ok(())
+                Ok(bucket_names)
             },
             Err(err) => {
-                let error = format!("Failed to list buckets: {}", err);
+                let sdk_error = err.into_service_error();
+                let error_code = sdk_error.code().unwrap_or("Unknown");
+                let error_message = sdk_error.message().unwrap_or("No error message");
+                
+                let error = format!("Failed to list buckets: {} - {}", error_code, error_message);
                 error!("{}", error);
                 self.loading = false;
                 Err(error)
@@ -212,6 +216,7 @@ impl BucketView {
     
     /// Load objects from the selected bucket
     pub async fn load_objects(&mut self, aws_auth: Arc<Mutex<AwsAuth>>, bucket: &str) -> Result<(), String> {
+        debug!("Loading objects from bucket: {}", bucket);
         self.loading = true;
         
         // Clone the auth to avoid holding the lock across await points
@@ -230,6 +235,7 @@ impl BucketView {
         };
         
         // Now use the cloned auth object
+        debug!("Getting AWS client for object listing");
         let client = match auth_clone.get_client().await {
             Ok(client) => client,
             Err(e) => {
@@ -240,6 +246,7 @@ impl BucketView {
             }
         };
         
+        debug!("Sending list_objects_v2 request for bucket: {}", bucket);
         match client.list_objects_v2().bucket(bucket).send().await {
             Ok(resp) => {
                 let objects = resp.contents().unwrap_or_default();
@@ -309,7 +316,11 @@ impl BucketView {
                 Ok(())
             },
             Err(err) => {
-                let error = format!("Failed to list objects in bucket {}: {}", bucket, err);
+                let sdk_error = err.into_service_error();
+                let error_code = sdk_error.code().unwrap_or("Unknown");
+                let error_message = sdk_error.message().unwrap_or("No error message");
+                
+                let error = format!("Failed to list objects in bucket {}: {} - {}", bucket, error_code, error_message);
                 error!("{}", error);
                 self.loading = false;
                 Err(error)

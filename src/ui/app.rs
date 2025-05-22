@@ -1,8 +1,9 @@
 use eframe::egui;
 use eframe::epi;
-use log::{info, error};
+use log::{info, error, debug};
 use std::sync::{Arc, Mutex};
 use tokio::runtime::Handle;
+use std::sync::mpsc;
 
 use super::bucket_view::BucketView;
 use super::folder_list::FolderList;
@@ -24,6 +25,16 @@ pub struct S3SyncApp {
     aws_auth: Arc<Mutex<AwsAuth>>,
     status_message: Option<(String, egui::Color32)>,
     rt: Arc<Handle>,
+    status_tx: mpsc::Sender<StatusMessage>,
+    status_rx: mpsc::Receiver<StatusMessage>,
+}
+
+/// Status message for communication between threads
+enum StatusMessage {
+    Info(String),
+    Success(String),
+    Error(String),
+    BucketList(Vec<String>),
 }
 
 /// Enum to track which view is currently active
@@ -37,6 +48,9 @@ enum CurrentView {
 impl Default for S3SyncApp {
     fn default() -> Self {
         info!("Initializing S3Sync application");
+        
+        // Create a channel for status messages
+        let (status_tx, status_rx) = mpsc::channel();
         
         // Try to load credentials from keyring
         let mut aws_auth = AwsAuth::default();
@@ -61,6 +75,8 @@ impl Default for S3SyncApp {
             aws_auth,
             status_message: None,
             rt: Arc::new(Handle::current()),
+            status_tx,
+            status_rx,
         }
     }
 }
@@ -68,19 +84,44 @@ impl Default for S3SyncApp {
 impl S3SyncApp {
     /// Load AWS credentials from the system keyring
     fn load_credentials_from_keyring(auth: &mut AwsAuth) -> bool {
+        debug!("Attempting to load credentials from keyring");
         match (CredentialManager::load_access_key(), CredentialManager::load_secret_key()) {
             (Ok(access_key), Ok(secret_key)) if !access_key.is_empty() && !secret_key.is_empty() => {
+                debug!("Found credentials in keyring");
                 auth.update_credentials(access_key, secret_key, auth.region().to_string());
                 true
             },
-            _ => false,
+            (Ok(access_key), Ok(_)) if access_key.is_empty() => {
+                debug!("No access key found in keyring");
+                false
+            },
+            (Ok(_), Ok(secret_key)) if secret_key.is_empty() => {
+                debug!("No secret key found in keyring");
+                false
+            },
+            (Err(e), _) => {
+                debug!("Error loading access key from keyring: {}", e);
+                false
+            },
+            (_, Err(e)) => {
+                debug!("Error loading secret key from keyring: {}", e);
+                false
+            },
+            _ => {
+                debug!("No credentials found in keyring");
+                false
+            }
         }
     }
     
     /// Save AWS credentials to the system keyring
     fn save_credentials_to_keyring(&self, access_key: &str, secret_key: &str) -> bool {
+        debug!("Saving credentials to keyring");
         match CredentialManager::save_credentials(access_key, secret_key) {
-            Ok(_) => true,
+            Ok(_) => {
+                debug!("Successfully saved credentials to keyring");
+                true
+            },
             Err(e) => {
                 error!("Failed to save credentials to keyring: {}", e);
                 false
@@ -92,44 +133,69 @@ impl S3SyncApp {
     fn load_buckets(&mut self) {
         let auth_clone = self.aws_auth.clone();
         let rt = self.rt.clone();
+        let tx = self.status_tx.clone();
         
         // Set loading state
         self.bucket_view.set_loading(true);
         self.set_status_info("Loading buckets...");
         
         // Spawn a task to load buckets
-        let ctx = egui::Context::default();
-        
         rt.spawn(async move {
+            debug!("Starting async task to load buckets");
             // Create a new BucketView just for this operation
             let mut bucket_view = BucketView::default();
-            let result = bucket_view.load_buckets(auth_clone).await;
-            
-            // Request a repaint to update the UI
-            ctx.request_repaint();
-            
-            // Return the result
-            result
+            match bucket_view.load_buckets(auth_clone).await {
+                Ok(buckets) => {
+                    debug!("Successfully loaded {} buckets", buckets.len());
+                    let _ = tx.send(StatusMessage::Success(format!("Loaded {} buckets", buckets.len())));
+                    let _ = tx.send(StatusMessage::BucketList(buckets));
+                },
+                Err(e) => {
+                    error!("Failed to load buckets: {}", e);
+                    let _ = tx.send(StatusMessage::Error(format!("Failed to load buckets: {}", e)));
+                }
+            }
         });
+    }
+    
+    /// Process any pending status messages
+    fn process_status_messages(&mut self) {
+        while let Ok(msg) = self.status_rx.try_recv() {
+            match msg {
+                StatusMessage::Info(text) => self.set_status_info(&text),
+                StatusMessage::Success(text) => self.set_status_success(&text),
+                StatusMessage::Error(text) => self.set_status_error(&text),
+                StatusMessage::BucketList(buckets) => self.bucket_view.set_buckets(buckets),
+            }
+        }
+        
+        // Clear loading state if there are no more messages
+        if self.bucket_view.is_loading() && self.status_rx.try_recv().is_err() {
+            self.bucket_view.set_loading(false);
+        }
     }
     
     /// Set an informational status message
     fn set_status_info(&mut self, message: &str) {
+        debug!("Status info: {}", message);
         self.status_message = Some((message.to_string(), egui::Color32::from_rgb(0, 128, 255)));
     }
     
     /// Set an error status message
     fn set_status_error(&mut self, message: &str) {
+        error!("Status error: {}", message);
         self.status_message = Some((message.to_string(), egui::Color32::RED));
     }
     
     /// Set a success status message
     fn set_status_success(&mut self, message: &str) {
+        info!("Status success: {}", message);
         self.status_message = Some((message.to_string(), egui::Color32::GREEN));
     }
     
     /// Clear the status message
     fn clear_status(&mut self) {
+        debug!("Clearing status message");
         self.status_message = None;
     }
     
@@ -178,6 +244,11 @@ impl S3SyncApp {
             
         egui::CentralPanel::default().show(ctx, |ui| {
             self.bucket_view.ui(ui);
+            
+            // Add a refresh button
+            if ui.button("Refresh Buckets").clicked() {
+                self.load_buckets();
+            }
         });
         
         egui::TopBottomPanel::bottom("status_bar").show(ctx, |ui| {
@@ -290,14 +361,14 @@ impl S3SyncApp {
     fn test_credentials_and_load_buckets(&mut self) {
         let auth_clone = self.aws_auth.clone();
         let rt = self.rt.clone();
+        let tx = self.status_tx.clone();
         
         // Set loading state
         self.set_status_info("Testing AWS credentials...");
         
         // Spawn a task to test credentials
-        let ctx = egui::Context::default();
-        
         rt.spawn(async move {
+            debug!("Starting async task to test credentials");
             // Clone the auth to avoid holding the lock across await points
             let mut auth_clone_inner = {
                 let auth_guard = auth_clone.lock().unwrap();
@@ -305,22 +376,31 @@ impl S3SyncApp {
             };
             
             // Now use the cloned auth object
-            let result = auth_clone_inner.test_credentials().await;
-            
-            match result {
+            match auth_clone_inner.test_credentials().await {
                 Ok(_) => {
                     info!("AWS credentials validated successfully");
-                    // TODO: Update status message to success
-                    // TODO: Load buckets
+                    let _ = tx.send(StatusMessage::Success("AWS credentials validated successfully".to_string()));
+                    
+                    // Now load buckets
+                    debug!("Loading buckets after successful credential validation");
+                    let mut bucket_view = BucketView::default();
+                    match bucket_view.load_buckets(auth_clone).await {
+                        Ok(buckets) => {
+                            debug!("Successfully loaded {} buckets", buckets.len());
+                            let _ = tx.send(StatusMessage::Success(format!("Loaded {} buckets", buckets.len())));
+                            let _ = tx.send(StatusMessage::BucketList(buckets));
+                        },
+                        Err(e) => {
+                            error!("Failed to load buckets: {}", e);
+                            let _ = tx.send(StatusMessage::Error(format!("Failed to load buckets: {}", e)));
+                        }
+                    }
                 },
                 Err(err) => {
                     error!("AWS credential validation failed: {}", err);
-                    // TODO: Update status message to error
+                    let _ = tx.send(StatusMessage::Error(format!("AWS credential validation failed: {}", err)));
                 }
             }
-            
-            // Request a repaint to update the UI
-            ctx.request_repaint();
         });
     }
 }
@@ -331,6 +411,9 @@ impl epi::App for S3SyncApp {
     }
     
     fn update(&mut self, ctx: &egui::Context, _frame: &epi::Frame) {
+        // Process any pending status messages
+        self.process_status_messages();
+        
         match self.current_view {
             CurrentView::Main => self.render_main_view(ctx),
             CurrentView::Settings => self.render_settings_view(ctx),
