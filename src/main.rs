@@ -7,13 +7,14 @@ mod sync;
 mod ui;
 mod error_handling;
 
-fn main() {
+#[tokio::main]
+async fn main() {
     // Initialize logging
     env_logger::init();
     info!("Starting S3Sync application");
 
     // Application options
-    let options = eframe::epi::NativeOptions {
+    let options = eframe::NativeOptions {
         initial_window_size: Some(egui::Vec2::new(1024.0, 768.0)),
         min_window_size: Some(egui::Vec2::new(800.0, 600.0)),
         ..Default::default()

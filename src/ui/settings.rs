@@ -89,18 +89,36 @@ impl SettingsView {
                 ui.text_edit_multiline(&mut self.exclude_patterns);
                 ui.end_row();
             });
-            
-        ui.separator();
-        
-        ui.horizontal(|ui| {
-            if ui.button("Save").clicked() {
-                // TODO: Save settings
-            }
-            
-            if ui.button("Reset").clicked() {
-                // TODO: Reset settings to defaults
-            }
-        });
+    }
+    
+    /// Get the AWS access key
+    pub fn aws_access_key(&self) -> String {
+        self.aws_access_key.clone()
+    }
+    
+    /// Get the AWS secret key
+    pub fn aws_secret_key(&self) -> String {
+        self.aws_secret_key.clone()
+    }
+    
+    /// Get the AWS region
+    pub fn aws_region(&self) -> String {
+        self.aws_region.clone()
+    }
+    
+    /// Set the AWS access key
+    pub fn set_aws_access_key(&mut self, access_key: String) {
+        self.aws_access_key = access_key;
+    }
+    
+    /// Set the AWS secret key
+    pub fn set_aws_secret_key(&mut self, secret_key: String) {
+        self.aws_secret_key = secret_key;
+    }
+    
+    /// Set the AWS region
+    pub fn set_aws_region(&mut self, region: String) {
+        self.aws_region = region;
     }
     
     /// Load settings from configuration

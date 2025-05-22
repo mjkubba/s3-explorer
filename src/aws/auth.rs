@@ -35,6 +35,16 @@ impl AwsAuth {
         }
     }
     
+    /// Check if credentials are empty
+    pub fn is_empty(&self) -> bool {
+        self.access_key.is_empty() || self.secret_key.is_empty()
+    }
+    
+    /// Get the current region
+    pub fn region(&self) -> &str {
+        &self.region
+    }
+    
     /// Initialize the AWS client with the current credentials
     pub async fn initialize(&mut self) -> Result<()> {
         if self.access_key.is_empty() || self.secret_key.is_empty() {
