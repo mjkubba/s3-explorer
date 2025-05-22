@@ -280,26 +280,9 @@ impl BucketView {
                     let size = obj.size() as u64;
                     let last_modified = obj.last_modified()
                         .map(|dt| {
-                            // Format the date in a human-readable format
-                            // The AWS DateTime debug format contains the actual date/time
-                            // We need to extract and format it properly
-                            let dt_str = format!("{:?}", dt);
-                            
-                            // Parse out the actual date time from the debug string
-                            // The format is typically: DateTime { date_time: "2023-05-22T14:30:15Z", ... }
-                            if let Some(start) = dt_str.find('"') {
-                                if let Some(end) = dt_str[start+1..].find('"') {
-                                    let date_time = &dt_str[start+1..start+1+end];
-                                    // Convert from ISO format to our desired format
-                                    if date_time.len() >= 19 { // Make sure we have enough characters
-                                        // Format: 2023-05-22T14:30:15Z -> 2023-05-22 14:30:15
-                                        return date_time[0..10].to_string() + " " + &date_time[11..19];
-                                    }
-                                }
-                            }
-                            
-                            // Fallback if parsing fails
-                            "Unknown".to_string()
+                            // Just use the debug format directly for now
+                            // This is a simple approach that works with the current format
+                            format!("{:?}", dt)
                         })
                         .unwrap_or_else(|| "Unknown".to_string());
                     
