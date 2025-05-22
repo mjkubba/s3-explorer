@@ -10,6 +10,7 @@ use super::folder_list::FolderList;
 use super::settings::SettingsView;
 use super::progress::ProgressView;
 use super::filter_view::FilterView;
+use super::folder_content::FolderContent;
 use crate::aws::auth::AwsAuth;
 use crate::config::credentials::CredentialManager;
 
@@ -17,6 +18,7 @@ use crate::config::credentials::CredentialManager;
 pub struct S3SyncApp {
     folder_list: FolderList,
     bucket_view: BucketView,
+    folder_content: FolderContent,
     settings_view: SettingsView,
     progress_view: ProgressView,
     filter_view: Option<FilterView>,
@@ -69,6 +71,7 @@ impl Default for S3SyncApp {
         Self {
             folder_list: FolderList::default(),
             bucket_view: BucketView::default(),
+            folder_content: FolderContent::default(),
             settings_view: SettingsView::default(),
             progress_view: ProgressView::default(),
             filter_view: None,
@@ -280,115 +283,142 @@ impl S3SyncApp {
             .default_width(250.0)
             .show(ctx, |ui| {
                 self.folder_list.ui(ui);
+                
+                // Check if a folder is selected and load its contents
+                if let Some(index) = self.folder_list.selected_index {
+                    if index < self.folder_list.folders.len() {
+                        let folder_path = &self.folder_list.folders[index].path;
+                        self.folder_content.load_folder(folder_path);
+                    }
+                }
             });
             
         egui::CentralPanel::default().show(ctx, |ui| {
-            // Render the bucket view
-            ui.vertical(|ui| {
-                ui.heading("S3 Buckets");
-                
-                // Show loading indicator or error message
-                if self.bucket_view.is_loading() {
-                    ui.horizontal(|ui| {
-                        ui.label("⏳ Loading...");
-                    });
-                } else if let Some(error) = self.bucket_view.error_message() {
-                    ui.colored_label(egui::Color32::RED, error);
-                    if ui.button("Clear Error").clicked() {
-                        self.bucket_view.clear_error();
-                    }
-                }
-                
-                // Bucket selection
-                ui.horizontal(|ui| {
-                    let mut selected_bucket = self.bucket_view.selected_bucket();
-                    let buckets = self.bucket_view.buckets().to_vec(); // Clone to avoid borrow issues
-                    
-                    egui::ComboBox::from_label("Select Bucket")
-                        .selected_text(selected_bucket.as_deref().unwrap_or("No bucket selected"))
-                        .show_ui(ui, |ui| {
-                            for bucket in &buckets {
-                                let bucket_str = bucket.clone();
-                                if ui.selectable_label(selected_bucket.as_deref() == Some(bucket), bucket).clicked() {
-                                    // Store the selection for processing after the UI rendering
-                                    self.pending_bucket_selection = Some(bucket_str);
+            // Split the central panel into two parts
+            egui::TopBottomPanel::top("bucket_panel")
+                .resizable(true)
+                .default_height(ui.available_height() / 2.0)
+                .show_inside(ui, |ui| {
+                    // Render the bucket view
+                    ui.vertical(|ui| {
+                        ui.heading("S3 Buckets");
+                        
+                        // Show loading indicator or error message
+                        if self.bucket_view.is_loading() {
+                            ui.horizontal(|ui| {
+                                ui.label("⏳ Loading...");
+                            });
+                        } else if let Some(error) = self.bucket_view.error_message() {
+                            ui.colored_label(egui::Color32::RED, error);
+                            if ui.button("Clear Error").clicked() {
+                                self.bucket_view.clear_error();
+                            }
+                        }
+                        
+                        // Bucket selection
+                        ui.horizontal(|ui| {
+                            let selected_bucket = self.bucket_view.selected_bucket();
+                            let buckets = self.bucket_view.buckets().to_vec(); // Clone to avoid borrow issues
+                            
+                            egui::ComboBox::from_label("Select Bucket")
+                                .selected_text(selected_bucket.as_deref().unwrap_or("No bucket selected"))
+                                .show_ui(ui, |ui| {
+                                    for bucket in &buckets {
+                                        let bucket_str = bucket.clone();
+                                        if ui.selectable_label(selected_bucket.as_deref() == Some(bucket), bucket).clicked() {
+                                            // Store the selection for processing after the UI rendering
+                                            self.pending_bucket_selection = Some(bucket_str);
+                                        }
+                                    }
+                                });
+                                
+                            if ui.button("Refresh Buckets").clicked() {
+                                self.load_buckets();
+                            }
+                            
+                            if let Some(bucket) = self.bucket_view.selected_bucket() {
+                                if ui.button("Load Objects").clicked() {
+                                    self.load_objects(&bucket);
                                 }
                             }
-                        });
-                        
-                    if ui.button("Refresh Buckets").clicked() {
-                        self.load_buckets();
-                    }
-                    
-                    if let Some(bucket) = self.bucket_view.selected_bucket() {
-                        if ui.button("Load Objects").clicked() {
-                            self.load_objects(&bucket);
-                        }
-                    }
-                });
-                
-                ui.separator();
-                
-                // Filter
-                ui.horizontal(|ui| {
-                    ui.label("Filter:");
-                    ui.text_edit_singleline(self.bucket_view.filter_mut());
-                    
-                    if ui.button("Clear").clicked() {
-                        self.bucket_view.clear_filter();
-                    }
-                });
-                
-                ui.separator();
-                
-                // Object list
-                if self.bucket_view.selected_bucket().is_some() {
-                    egui::ScrollArea::vertical().show(ui, |ui| {
-                        // Table header
-                        ui.horizontal(|ui| {
-                            ui.label(egui::RichText::new("Name").strong());
-                            ui.add_space(200.0);
-                            ui.label(egui::RichText::new("Size").strong());
-                            ui.add_space(100.0);
-                            ui.label(egui::RichText::new("Last Modified").strong());
                         });
                         
                         ui.separator();
                         
-                        // Table rows
-                        let filter = self.bucket_view.filter().to_lowercase();
-                        let objects = self.bucket_view.objects().to_vec(); // Clone to avoid borrow issues
+                        // Filter
+                        ui.horizontal(|ui| {
+                            ui.label("Filter:");
+                            ui.text_edit_singleline(self.bucket_view.filter_mut());
+                            
+                            if ui.button("Clear").clicked() {
+                                self.bucket_view.clear_filter();
+                            }
+                        });
                         
-                        if objects.is_empty() {
-                            ui.label("No objects found in this bucket");
-                        } else {
-                            for object in &objects {
-                                if !filter.is_empty() && !object.key.to_lowercase().contains(&filter) {
-                                    continue;
-                                }
-                                
+                        ui.separator();
+                        
+                        // Object list
+                        if self.bucket_view.selected_bucket().is_some() {
+                            egui::ScrollArea::vertical().show(ui, |ui| {
+                                // Table header
                                 ui.horizontal(|ui| {
-                                    let icon = if object.is_directory { "📁 " } else { "📄 " };
-                                    ui.label(format!("{}{}", icon, object.key));
-                                    ui.add_space(200.0 - object.key.len() as f32 * 7.0);
-                                    
-                                    let size_str = if object.is_directory {
-                                        "-".to_string()
-                                    } else {
-                                        super::bucket_view::format_size(object.size)
-                                    };
-                                    
-                                    ui.label(size_str);
+                                    ui.label(egui::RichText::new("Name").strong());
+                                    ui.add_space(200.0);
+                                    ui.label(egui::RichText::new("Size").strong());
                                     ui.add_space(100.0);
-                                    ui.label(&object.last_modified);
+                                    ui.label(egui::RichText::new("Last Modified").strong());
                                 });
                                 
                                 ui.separator();
-                            }
+                                
+                                // Table rows
+                                let filter = self.bucket_view.filter().to_lowercase();
+                                let objects = self.bucket_view.objects().to_vec(); // Clone to avoid borrow issues
+                                
+                                if objects.is_empty() {
+                                    ui.label("No objects found in this bucket");
+                                } else {
+                                    for object in &objects {
+                                        if !filter.is_empty() && !object.key.to_lowercase().contains(&filter) {
+                                            continue;
+                                        }
+                                        
+                                        ui.horizontal(|ui| {
+                                            let icon = if object.is_directory { "📁 " } else { "📄 " };
+                                            ui.label(format!("{}{}", icon, object.key));
+                                            ui.add_space(200.0 - object.key.len() as f32 * 7.0);
+                                            
+                                            let size_str = if object.is_directory {
+                                                "-".to_string()
+                                            } else {
+                                                super::bucket_view::format_size(object.size)
+                                            };
+                                            
+                                            ui.label(size_str);
+                                            ui.add_space(100.0);
+                                            ui.label(&object.last_modified);
+                                        });
+                                        
+                                        ui.separator();
+                                    }
+                                }
+                            });
+                        } else {
+                            ui.label("Select a bucket to view objects");
                         }
                     });
+                });
+                
+            // Show folder contents in the bottom panel
+            egui::CentralPanel::default().show_inside(ui, |ui| {
+                if let Some(index) = self.folder_list.selected_index {
+                    if index < self.folder_list.folders.len() {
+                        self.folder_content.ui(ui);
+                    } else {
+                        ui.label("Select a folder to view its contents");
+                    }
                 } else {
-                    ui.label("Select a bucket to view objects");
+                    ui.label("Select a folder to view its contents");
                 }
             });
         });
