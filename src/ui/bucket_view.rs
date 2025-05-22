@@ -1,6 +1,7 @@
 use eframe::egui;
 use std::sync::{Arc, Mutex};
 use log::{info, error, debug};
+use std::collections::HashMap;
 
 use crate::aws::auth::AwsAuth;
 
@@ -13,6 +14,7 @@ pub struct BucketView {
     filter: String,
     loading: bool,
     error_message: Option<String>,
+    bucket_regions: HashMap<String, String>,
 }
 
 /// Represents an object in an S3 bucket
@@ -106,6 +108,17 @@ impl BucketView {
         &self.objects
     }
     
+    /// Get the region for a bucket
+    pub fn get_bucket_region(&self, bucket: &str) -> Option<&String> {
+        self.bucket_regions.get(bucket)
+    }
+    
+    /// Set the region for a bucket
+    pub fn set_bucket_region(&mut self, bucket: String, region: String) {
+        debug!("Setting region for bucket {}: {}", bucket, region);
+        self.bucket_regions.insert(bucket, region);
+    }
+    
     /// Load buckets from AWS
     pub async fn load_buckets(&mut self, aws_auth: Arc<Mutex<AwsAuth>>) -> Result<Vec<String>, String> {
         debug!("Loading buckets from AWS");
@@ -154,6 +167,21 @@ impl BucketView {
                     .collect();
                     
                 info!("Listed {} S3 buckets", bucket_names.len());
+                
+                // Get the region for each bucket
+                for bucket_name in &bucket_names {
+                    match auth_clone.get_bucket_location(bucket_name).await {
+                        Ok(region) => {
+                            self.set_bucket_region(bucket_name.clone(), region);
+                        },
+                        Err(e) => {
+                            error!("Failed to get region for bucket {}: {}", bucket_name, e);
+                            // Default to the current region if we can't get the bucket location
+                            self.set_bucket_region(bucket_name.clone(), auth_clone.region().to_string());
+                        }
+                    }
+                }
+                
                 self.buckets = bucket_names.clone();
                 self.loading = false;
                 Ok(bucket_names)
@@ -176,8 +204,43 @@ impl BucketView {
         debug!("Loading objects from bucket: {}", bucket);
         self.loading = true;
         
+        // Get the region for this bucket
+        let bucket_region = match self.get_bucket_region(bucket) {
+            Some(region) => region.clone(),
+            None => {
+                // If we don't have the region cached, try to get it
+                let mut auth_clone = {
+                    let auth_guard = match aws_auth.lock() {
+                        Ok(guard) => guard,
+                        Err(e) => {
+                            let error = format!("Failed to acquire lock on AWS auth: {}", e);
+                            error!("{}", error);
+                            return Err(error);
+                        }
+                    };
+                    
+                    // Clone the auth object
+                    auth_guard.clone()
+                };
+                
+                match auth_clone.get_bucket_location(bucket).await {
+                    Ok(region) => {
+                        self.set_bucket_region(bucket.to_string(), region.clone());
+                        region
+                    },
+                    Err(e) => {
+                        error!("Failed to get region for bucket {}: {}", bucket, e);
+                        // Default to the current region if we can't get the bucket location
+                        auth_clone.region().to_string()
+                    }
+                }
+            }
+        };
+        
+        debug!("Using region {} for bucket {}", bucket_region, bucket);
+        
         // Clone the auth to avoid holding the lock across await points
-        let mut auth_clone = {
+        let auth_clone = {
             let auth_guard = match aws_auth.lock() {
                 Ok(guard) => guard,
                 Err(e) => {
@@ -191,19 +254,19 @@ impl BucketView {
             auth_guard.clone()
         };
         
-        // Now use the cloned auth object
-        debug!("Getting AWS client for object listing");
-        let client = match auth_clone.get_client().await {
+        // Now use the cloned auth object to get a client for the specific region
+        debug!("Getting AWS client for region {}", bucket_region);
+        let client = match auth_clone.get_client_for_region(&bucket_region).await {
             Ok(client) => client,
             Err(e) => {
-                let error = format!("Failed to get AWS client: {}", e);
+                let error = format!("Failed to get AWS client for region {}: {}", bucket_region, e);
                 error!("{}", error);
                 self.loading = false;
                 return Err(error);
             }
         };
         
-        debug!("Sending list_objects_v2 request for bucket: {}", bucket);
+        debug!("Sending list_objects_v2 request for bucket: {} in region {}", bucket, bucket_region);
         match client.list_objects_v2().bucket(bucket).send().await {
             Ok(resp) => {
                 let objects = resp.contents().unwrap_or_default();
@@ -267,7 +330,7 @@ impl BucketView {
                     }
                 });
                 
-                info!("Listed {} objects in bucket {}", s3_objects.len(), bucket);
+                info!("Listed {} objects in bucket {} (region {})", s3_objects.len(), bucket, bucket_region);
                 self.objects = s3_objects.clone();
                 self.loading = false;
                 Ok(s3_objects)

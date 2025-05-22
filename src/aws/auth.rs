@@ -86,6 +86,35 @@ impl AwsAuth {
         self.client.as_ref().ok_or_else(|| anyhow!("Failed to initialize AWS client"))
     }
     
+    /// Get a client for a specific region
+    pub async fn get_client_for_region(&self, region: &str) -> Result<Client> {
+        debug!("Creating client for specific region: {}", region);
+        
+        if self.access_key.is_empty() || self.secret_key.is_empty() {
+            return Err(anyhow!("AWS credentials not provided"));
+        }
+        
+        // Set environment variables for AWS SDK
+        env::set_var("AWS_ACCESS_KEY_ID", &self.access_key);
+        env::set_var("AWS_SECRET_ACCESS_KEY", &self.secret_key);
+        env::set_var("AWS_REGION", region);
+        
+        let region_provider = RegionProviderChain::first_try(Region::new(region.to_string()))
+            .or_default_provider();
+            
+        debug!("Creating AWS SDK configuration for region {}", region);
+        let config = aws_config::from_env()
+            .region(region_provider)
+            .load()
+            .await;
+            
+        debug!("Creating S3 client for region {}", region);
+        let client = Client::new(&config);
+        
+        info!("AWS S3 client created for region {}", region);
+        Ok(client)
+    }
+    
     /// Test the AWS credentials by listing buckets
     pub async fn test_credentials(&mut self) -> Result<bool> {
         debug!("Testing AWS credentials");
@@ -116,6 +145,79 @@ impl AwsAuth {
                 
                 error!("AWS credential validation failed: Code={}, Message={}", error_code, error_message);
                 Err(anyhow!("AWS credential validation failed: {} - {}", error_code, error_message))
+            }
+        }
+    }
+    
+    /// Get the location (region) of a bucket
+    pub async fn get_bucket_location(&mut self, bucket_name: &str) -> Result<String> {
+        debug!("Getting location for bucket: {}", bucket_name);
+        
+        let client = self.get_client().await?;
+        
+        match client.get_bucket_location().bucket(bucket_name).send().await {
+            Ok(resp) => {
+                // Extract the location constraint as a string
+                let location_str = match resp.location_constraint() {
+                    Some(constraint) => {
+                        // Convert the enum to a debug string and extract the value
+                        let debug_str = format!("{:?}", constraint);
+                        if debug_str.contains("\"\"") || debug_str == "Empty" {
+                            // Empty constraint means us-east-1
+                            "us-east-1".to_string()
+                        } else if debug_str.starts_with("Unknown(") {
+                            // Extract the value from Unknown("value")
+                            let start = debug_str.find('(').map(|i| i + 2).unwrap_or(0);
+                            let end = debug_str.rfind('"').unwrap_or(debug_str.len());
+                            if start < end {
+                                debug_str[start..end].to_string()
+                            } else {
+                                "us-east-1".to_string() // Default if parsing fails
+                            }
+                        } else {
+                            // For known enum variants, extract the region name
+                            let region_name = match debug_str.as_str() {
+                                "EuWest1" => "eu-west-1",
+                                "UsWest1" => "us-west-1",
+                                "UsWest2" => "us-west-2",
+                                "EuWest2" => "eu-west-2",
+                                "EuWest3" => "eu-west-3",
+                                "UsEast2" => "us-east-2",
+                                "ApSouth1" => "ap-south-1",
+                                "ApSoutheast1" => "ap-southeast-1",
+                                "ApSoutheast2" => "ap-southeast-2",
+                                "ApNortheast1" => "ap-northeast-1",
+                                "ApNortheast2" => "ap-northeast-2",
+                                "ApNortheast3" => "ap-northeast-3",
+                                "SaEast1" => "sa-east-1",
+                                "CnNorth1" => "cn-north-1",
+                                "CnNorthwest1" => "cn-northwest-1",
+                                "UsGovWest1" => "us-gov-west-1",
+                                "UsGovEast1" => "us-gov-east-1",
+                                "EuCentral1" => "eu-central-1",
+                                "EuNorth1" => "eu-north-1",
+                                "MeSouth1" => "me-south-1",
+                                "AfSouth1" => "af-south-1",
+                                "EuSouth1" => "eu-south-1",
+                                "ApEast1" => "ap-east-1",
+                                _ => "us-east-1", // Default for unknown regions
+                            };
+                            region_name.to_string()
+                        }
+                    },
+                    None => "us-east-1".to_string(), // Default if no constraint is specified
+                };
+                
+                info!("Bucket {} is in region {}", bucket_name, location_str);
+                Ok(location_str)
+            },
+            Err(err) => {
+                let sdk_error = err.into_service_error();
+                let error_code = sdk_error.code().unwrap_or("Unknown");
+                let error_message = sdk_error.message().unwrap_or("No error message");
+                
+                error!("Failed to get bucket location: Code={}, Message={}", error_code, error_message);
+                Err(anyhow!("Failed to get bucket location: {} - {}", error_code, error_message))
             }
         }
     }
