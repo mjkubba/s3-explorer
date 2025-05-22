@@ -1,19 +1,23 @@
 use anyhow::{anyhow, Result};
-use aws_sdk_s3::output::GetObjectOutput;
+use aws_sdk_s3::Client;
+use aws_sdk_s3::types::ByteStream;
 use log::{debug, error, info};
-use std::path::Path;
-use tokio::fs::File;
-use tokio::io::AsyncWriteExt;
+use std::path::{Path, PathBuf};
+use std::fs::File;
+use std::io::Write;
+use tokio::io::AsyncReadExt;
 
-use super::auth::AwsAuth;
+use crate::aws::auth::AwsAuth;
 
-/// S3 file transfer manager
+/// Manager for transferring files to and from S3
 pub struct TransferManager {
     auth: AwsAuth,
 }
 
-/// Transfer progress information
+/// Progress information for a transfer
+#[derive(Clone)]
 pub struct TransferProgress {
+    pub file_name: String,
     pub bytes_transferred: u64,
     pub total_bytes: u64,
     pub percentage: f32,
@@ -31,32 +35,48 @@ impl TransferManager {
         local_path: &Path,
         bucket: &str,
         key: &str,
-        progress_callback: Option<&dyn Fn(TransferProgress)>,
+        progress_callback: Option<Box<dyn Fn(TransferProgress) + Send + Sync>>,
     ) -> Result<()> {
-        let client = self.auth.get_client().await?;
+        debug!("Uploading file {} to s3://{}/{}", local_path.display(), bucket, key);
         
-        // Read file metadata
-        let metadata = tokio::fs::metadata(local_path).await?;
+        // Get the region for this bucket
+        let region = match self.auth.get_bucket_location(bucket).await {
+            Ok(region) => region,
+            Err(e) => {
+                error!("Failed to get region for bucket {}: {}", bucket, e);
+                // Default to the current region if we can't get the bucket location
+                self.auth.region().to_string()
+            }
+        };
+        
+        // Get a client for the specific region
+        let client = self.auth.get_client_for_region(&region).await?;
+        
+        // Read the file
+        let file = File::open(local_path)?;
+        let metadata = file.metadata()?;
         let file_size = metadata.len();
         
-        // Read file content
-        let body = tokio::fs::read(local_path).await?;
+        // Create a byte stream from the file
+        let body = ByteStream::from_path(local_path).await?;
         
         // Upload the file
-        match client
+        let result = client
             .put_object()
             .bucket(bucket)
             .key(key)
-            .body(body.into())
+            .body(body)
             .send()
-            .await
-        {
+            .await;
+            
+        match result {
             Ok(_) => {
-                info!("Uploaded {} to {}/{}", local_path.display(), bucket, key);
+                info!("Successfully uploaded {} to s3://{}/{}", local_path.display(), bucket, key);
                 
-                // Call progress callback with 100% completion
+                // Call the progress callback with 100% completion
                 if let Some(callback) = progress_callback {
                     callback(TransferProgress {
+                        file_name: local_path.file_name().unwrap_or_default().to_string_lossy().to_string(),
                         bytes_transferred: file_size,
                         total_bytes: file_size,
                         percentage: 100.0,
@@ -65,9 +85,9 @@ impl TransferManager {
                 
                 Ok(())
             },
-            Err(err) => {
-                error!("Failed to upload {}: {}", local_path.display(), err);
-                Err(anyhow!("Failed to upload {}: {}", local_path.display(), err))
+            Err(e) => {
+                error!("Failed to upload {} to s3://{}/{}: {}", local_path.display(), bucket, key, e);
+                Err(anyhow!("Failed to upload file: {}", e))
             }
         }
     }
@@ -78,96 +98,156 @@ impl TransferManager {
         bucket: &str,
         key: &str,
         local_path: &Path,
-        progress_callback: Option<&dyn Fn(TransferProgress)>,
+        progress_callback: Option<Box<dyn Fn(TransferProgress) + Send + Sync>>,
     ) -> Result<()> {
-        let client = self.auth.get_client().await?;
+        debug!("Downloading s3://{}/{} to {}", bucket, key, local_path.display());
         
-        // Create parent directories if they don't exist
-        if let Some(parent) = local_path.parent() {
-            tokio::fs::create_dir_all(parent).await?;
-        }
+        // Get the region for this bucket
+        let region = match self.auth.get_bucket_location(bucket).await {
+            Ok(region) => region,
+            Err(e) => {
+                error!("Failed to get region for bucket {}: {}", bucket, e);
+                // Default to the current region if we can't get the bucket location
+                self.auth.region().to_string()
+            }
+        };
+        
+        // Get a client for the specific region
+        let client = self.auth.get_client_for_region(&region).await?;
         
         // Get the object
-        let resp = client
+        let result = client
             .get_object()
+            .bucket(bucket)
+            .key(key)
+            .send()
+            .await;
+            
+        match result {
+            Ok(resp) => {
+                // Create the parent directory if it doesn't exist
+                if let Some(parent) = local_path.parent() {
+                    std::fs::create_dir_all(parent)?;
+                }
+                
+                // Process the response and write to file
+                self.process_download_response(resp, local_path, progress_callback).await?;
+                
+                info!("Successfully downloaded s3://{}/{} to {}", bucket, key, local_path.display());
+                Ok(())
+            },
+            Err(e) => {
+                error!("Failed to download s3://{}/{} to {}: {}", bucket, key, local_path.display(), e);
+                Err(anyhow!("Failed to download file: {}", e))
+            }
+        }
+    }
+    
+    async fn process_download_response(
+        &self,
+        resp: aws_sdk_s3::output::GetObjectOutput,
+        local_path: &Path,
+        progress_callback: Option<Box<dyn Fn(TransferProgress) + Send + Sync>>,
+    ) -> Result<()> {
+        let total_size = resp.content_length() as u64;
+        let file_name = local_path.file_name().unwrap_or_default().to_string_lossy().to_string();
+        
+        // Create the file
+        let mut file = File::create(local_path)?;
+        
+        // Get the body as a stream
+        let mut body = resp.body.into_async_read();
+        
+        // Read the stream in chunks and write to file
+        let mut buffer = vec![0; 8192]; // 8KB buffer
+        let mut bytes_read = 0;
+        
+        loop {
+            let n = body.read(&mut buffer).await?;
+            if n == 0 {
+                break;
+            }
+            
+            file.write_all(&buffer[..n])?;
+            bytes_read += n as u64;
+            
+            // Update progress
+            if let Some(callback) = &progress_callback {
+                let percentage = if total_size > 0 {
+                    (bytes_read as f32 / total_size as f32) * 100.0
+                } else {
+                    0.0
+                };
+                
+                callback(TransferProgress {
+                    file_name: file_name.clone(),
+                    bytes_transferred: bytes_read,
+                    total_bytes: total_size,
+                    percentage,
+                });
+            }
+        }
+        
+        Ok(())
+    }
+    
+    /// Check if an object exists in S3
+    pub async fn object_exists(&mut self, bucket: &str, key: &str) -> Result<bool> {
+        debug!("Checking if object s3://{}/{} exists", bucket, key);
+        
+        // Get the region for this bucket
+        let region = match self.auth.get_bucket_location(bucket).await {
+            Ok(region) => region,
+            Err(e) => {
+                error!("Failed to get region for bucket {}: {}", bucket, e);
+                // Default to the current region if we can't get the bucket location
+                self.auth.region().to_string()
+            }
+        };
+        
+        // Get a client for the specific region
+        let client = self.auth.get_client_for_region(&region).await?;
+        
+        // Check if the object exists
+        let result = client
+            .head_object()
+            .bucket(bucket)
+            .key(key)
+            .send()
+            .await;
+            
+        Ok(result.is_ok())
+    }
+    
+    /// Get metadata for an object in S3
+    pub async fn get_object_metadata(
+        &mut self,
+        bucket: &str,
+        key: &str,
+    ) -> Result<aws_sdk_s3::output::HeadObjectOutput> {
+        debug!("Getting metadata for object s3://{}/{}", bucket, key);
+        
+        // Get the region for this bucket
+        let region = match self.auth.get_bucket_location(bucket).await {
+            Ok(region) => region,
+            Err(e) => {
+                error!("Failed to get region for bucket {}: {}", bucket, e);
+                // Default to the current region if we can't get the bucket location
+                self.auth.region().to_string()
+            }
+        };
+        
+        // Get a client for the specific region
+        let client = self.auth.get_client_for_region(&region).await?;
+        
+        // Get the object metadata
+        let result = client
+            .head_object()
             .bucket(bucket)
             .key(key)
             .send()
             .await?;
             
-        let total_size = resp.content_length() as u64;
-        
-        // Process the response
-        self.process_download_response(resp, local_path, total_size, progress_callback).await?;
-        
-        info!("Downloaded {}/{} to {}", bucket, key, local_path.display());
-        Ok(())
-    }
-    
-    /// Process the download response and write to file
-    async fn process_download_response(
-        &self,
-        resp: GetObjectOutput,
-        local_path: &Path,
-        total_size: u64,
-        progress_callback: Option<&dyn Fn(TransferProgress)>,
-    ) -> Result<()> {
-        // Create the file
-        let mut file = File::create(local_path).await?;
-        
-        // Get the body as bytes
-        let body = resp.body.collect().await?;
-        let bytes = body.into_bytes();
-        let bytes_len = bytes.len() as u64;
-        
-        // Write the bytes to the file
-        file.write_all(&bytes).await?;
-        
-        // Update progress
-        if let Some(callback) = progress_callback {
-            callback(TransferProgress {
-                bytes_transferred: bytes_len,
-                total_bytes: total_size,
-                percentage: (bytes_len as f32 / total_size as f32) * 100.0,
-            });
-        }
-        
-        Ok(())
-    }
-    
-    /// Check if a file exists in S3
-    pub async fn object_exists(&mut self, bucket: &str, key: &str) -> Result<bool> {
-        let client = self.auth.get_client().await?;
-        
-        match client.head_object().bucket(bucket).key(key).send().await {
-            Ok(_) => {
-                debug!("Object {}/{} exists", bucket, key);
-                Ok(true)
-            },
-            Err(_) => {
-                debug!("Object {}/{} does not exist", bucket, key);
-                Ok(false)
-            }
-        }
-    }
-    
-    /// Get object metadata
-    pub async fn get_object_metadata(
-        &mut self,
-        bucket: &str,
-        key: &str,
-    ) -> Result<Option<aws_sdk_s3::output::HeadObjectOutput>> {
-        let client = self.auth.get_client().await?;
-        
-        match client.head_object().bucket(bucket).key(key).send().await {
-            Ok(metadata) => {
-                debug!("Retrieved metadata for {}/{}", bucket, key);
-                Ok(Some(metadata))
-            },
-            Err(_) => {
-                debug!("Could not retrieve metadata for {}/{}", bucket, key);
-                Ok(None)
-            }
-        }
+        Ok(result)
     }
 }
