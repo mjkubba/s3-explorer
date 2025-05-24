@@ -148,6 +148,11 @@ impl FolderContent {
         self.load_files(path);
     }
     
+    /// Get the list of files
+    pub fn files(&self) -> &[FileEntry] {
+        &self.files
+    }
+    
     /// Load files from the specified path
     fn load_files(&mut self, path: PathBuf) {
         self.files.clear();
@@ -263,7 +268,7 @@ fn format_size(size: u64) -> String {
         format!("{} B", size)
     } else if size < MB {
         format!("{:.2} KB", size as f64 / KB as f64)
-    } else if size < GB {
+    } else if size < MB {
         format!("{:.2} MB", size as f64 / MB as f64)
     } else {
         format!("{:.2} GB", size as f64 / GB as f64)

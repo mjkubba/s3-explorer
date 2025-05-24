@@ -279,7 +279,66 @@ impl epi::App for S3SyncApp {
                         ui.vertical(|ui| {
                             if let Some(folder_path) = self.folder_list.selected_folder() {
                                 self.folder_content.set_folder(folder_path.clone());
-                                self.folder_content.ui(ui);
+                                
+                                // Display folder contents in a columnar format
+                                ui.heading(&format!("Folder: {}", folder_path.display()));
+                                
+                                // Create a table header
+                                ui.horizontal(|ui| {
+                                    ui.style_mut().spacing.item_spacing.x = 10.0;
+                                    ui.strong("Type");
+                                    ui.strong("Name");
+                                    ui.add_space(200.0);
+                                    ui.strong("Size");
+                                    ui.add_space(50.0);
+                                    ui.strong("Last Modified");
+                                });
+                                
+                                ui.separator();
+                                
+                                // Display files in a scrollable area
+                                egui::ScrollArea::vertical().id_source("folder_contents_scroll").show(ui, |ui| {
+                                    let files = self.folder_content.files();
+                                    
+                                    if files.is_empty() {
+                                        ui.label("No files in this folder");
+                                    } else {
+                                        // Add each file as a row in the table
+                                        for file in files {
+                                            // Use a container for each row
+                                            egui::containers::Frame::none()
+                                                .show(ui, |ui| {
+                                                    ui.horizontal(|ui| {
+                                                        ui.style_mut().spacing.item_spacing.x = 10.0;
+                                                        
+                                                        // Type icon
+                                                        let icon = if file.is_directory { "📁" } else { "📄" };
+                                                        ui.label(icon);
+                                                        
+                                                        // Name
+                                                        let name_len = file.name.len();
+                                                        ui.label(&file.name);
+                                                        ui.add_space(200.0 - name_len as f32 * 7.0); // Approximate spacing
+                                                        
+                                                        // Size
+                                                        let size_text = if file.is_directory {
+                                                            "-".to_string()
+                                                        } else {
+                                                            format_size(file.size)
+                                                        };
+                                                        ui.label(&size_text);
+                                                        ui.add_space(50.0);
+                                                        
+                                                        // Last Modified
+                                                        ui.label(&file.last_modified);
+                                                    });
+                                                });
+                                            
+                                            // Add some spacing between rows
+                                            ui.add_space(2.0);
+                                        }
+                                    }
+                                });
                             } else if let Some(bucket) = self.bucket_view.selected_bucket() {
                                 // Display bucket objects in the content area
                                 ui.heading(&format!("Bucket: {}", bucket));
