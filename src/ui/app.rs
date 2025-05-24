@@ -21,6 +21,26 @@ use crate::config::credentials::CredentialManager;
 use crate::ui::folder_content::FileEntry;
 use crate::ui::bucket_view::S3Object;
 
+/// Format a file size in bytes to a human-readable string
+fn format_size(size: u64) -> String {
+    const KB: u64 = 1024;
+    const MB: u64 = KB * 1024;
+    const GB: u64 = MB * 1024;
+    const TB: u64 = GB * 1024;
+
+    if size < KB {
+        format!("{} B", size)
+    } else if size < MB {
+        format!("{:.2} KB", size as f64 / KB as f64)
+    } else if size < GB {
+        format!("{:.2} MB", size as f64 / MB as f64)
+    } else if size < TB {
+        format!("{:.2} GB", size as f64 / GB as f64)
+    } else {
+        format!("{:.2} TB", size as f64 / TB as f64)
+    }
+}
+
 /// Main application state
 pub struct S3SyncApp {
     folder_list: FolderList,
@@ -264,26 +284,62 @@ impl epi::App for S3SyncApp {
                                 // Display bucket objects in the content area
                                 ui.heading(&format!("Bucket: {}", bucket));
                                 
-                                // Display objects from the bucket using a simpler approach
+                                // Create a table header
+                                ui.horizontal(|ui| {
+                                    ui.style_mut().spacing.item_spacing.x = 10.0;
+                                    ui.strong("Type");
+                                    ui.strong("Name");
+                                    ui.add_space(200.0);
+                                    ui.strong("Size");
+                                    ui.add_space(50.0);
+                                    ui.strong("Last Modified");
+                                });
+                                
+                                ui.separator();
+                                
+                                // Display objects in a scrollable area
                                 egui::ScrollArea::vertical().id_source("bucket_objects_scroll").show(ui, |ui| {
                                     if self.bucket_view.objects().is_empty() {
                                         ui.label("No objects in this bucket");
                                     } else {
-                                        // Add each object as a separate widget
-                                        for (index, obj) in self.bucket_view.objects().iter().enumerate() {
-                                            // Use a container with a unique ID
+                                        // Add each object as a row in the table
+                                        for obj in self.bucket_view.objects().iter() {
+                                            // Use a container for each row
                                             egui::containers::Frame::none()
                                                 .show(ui, |ui| {
-                                                    let label_text = if obj.is_directory {
-                                                        format!("📁 {}", obj.key)
-                                                    } else {
-                                                        format!("📄 {} ({} bytes)", obj.key, obj.size)
-                                                    };
-                                                    
-                                                    ui.add(egui::Label::new(label_text).wrap(false));
+                                                    ui.horizontal(|ui| {
+                                                        ui.style_mut().spacing.item_spacing.x = 10.0;
+                                                        
+                                                        // Type icon
+                                                        let icon = if obj.is_directory { "📁" } else { "📄" };
+                                                        ui.label(icon);
+                                                        
+                                                        // Name
+                                                        let name = if obj.is_directory {
+                                                            obj.key.clone()
+                                                        } else {
+                                                            // Extract just the filename from the key
+                                                            obj.key.split('/').last().unwrap_or(&obj.key).to_string()
+                                                        };
+                                                        let name_len = name.len();
+                                                        ui.label(&name);
+                                                        ui.add_space(200.0 - name_len as f32 * 7.0); // Approximate spacing
+                                                        
+                                                        // Size
+                                                        let size_text = if obj.is_directory {
+                                                            "-".to_string()
+                                                        } else {
+                                                            format_size(obj.size)
+                                                        };
+                                                        ui.label(&size_text);
+                                                        ui.add_space(50.0);
+                                                        
+                                                        // Last Modified
+                                                        ui.label(&obj.last_modified);
+                                                    });
                                                 });
                                             
-                                            // Add some spacing between items
+                                            // Add some spacing between rows
                                             ui.add_space(2.0);
                                         }
                                     }
