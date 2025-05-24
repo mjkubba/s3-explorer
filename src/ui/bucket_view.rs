@@ -68,6 +68,11 @@ impl BucketView {
         self.selected_bucket.clone()
     }
     
+    /// Set the list of buckets
+    pub fn set_buckets(&mut self, buckets: Vec<String>) {
+        self.buckets = buckets;
+    }
+    
     /// Render the bucket view UI and return true if selection changed
     pub fn ui(&mut self, ui: &mut egui::Ui) -> bool {
         let mut selection_changed = false;
@@ -82,18 +87,37 @@ impl BucketView {
             }
         });
         
-        // Bucket list
-        egui::ScrollArea::vertical().show(ui, |ui| {
-            for bucket in &self.buckets {
-                let is_selected = self.selected_bucket.as_ref() == Some(bucket);
-                if ui.selectable_label(is_selected, bucket).clicked() {
-                    if !is_selected {
-                        self.selected_bucket = Some(bucket.clone());
-                        selection_changed = true;
+        // Bucket dropdown
+        ui.horizontal(|ui| {
+            ui.label("Select bucket:");
+            
+            egui::ComboBox::from_id_source("bucket_selector")
+                .selected_text(self.selected_bucket.as_deref().unwrap_or("Select a bucket"))
+                .show_ui(ui, |ui| {
+                    for bucket in &self.buckets {
+                        let is_selected = self.selected_bucket.as_ref() == Some(bucket);
+                        if ui.selectable_label(is_selected, bucket).clicked() {
+                            if !is_selected {
+                                self.selected_bucket = Some(bucket.clone());
+                                selection_changed = true;
+                            }
+                        }
                     }
-                }
-            }
+                });
         });
+        
+        // Bucket list (as a fallback/alternative view)
+        // egui::ScrollArea::vertical().show(ui, |ui| {
+        //     for bucket in &self.buckets {
+        //         let is_selected = self.selected_bucket.as_ref() == Some(bucket);
+        //         if ui.selectable_label(is_selected, bucket).clicked() {
+        //             if !is_selected {
+        //                 self.selected_bucket = Some(bucket.clone());
+        //                 selection_changed = true;
+        //             }
+        //         }
+        //     }
+        // });
         
         // Show loading indicator if loading
         if self.loading {

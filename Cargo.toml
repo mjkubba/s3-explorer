@@ -35,3 +35,6 @@ walkdir = "2.3"
 [dev-dependencies]
 tempfile = "3.3"
 mockall = "0.11"
+
+[build-dependencies]
+winres = "0.1.12"

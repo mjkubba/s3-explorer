@@ -108,7 +108,7 @@ impl AwsAuth {
             &self.secret_key,
             None,
             None,
-            "s3sync",
+            "s3sync-app",
         );
         
         // Build the config
@@ -141,7 +141,7 @@ impl AwsAuth {
             &self.secret_key,
             None,
             None,
-            "s3sync",
+            "s3sync-app",
         );
         
         // Build the config

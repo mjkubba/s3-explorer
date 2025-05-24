@@ -52,6 +52,7 @@ enum StatusMessage {
     Info(String),
     Error(String),
     ObjectList(Vec<crate::ui::bucket_view::S3Object>),
+    BucketList(Vec<String>),
     Progress(TransferProgress),
     SyncComplete,
 }
@@ -60,7 +61,8 @@ impl Default for S3SyncApp {
     fn default() -> Self {
         let (tx, rx) = mpsc::channel();
         
-        Self {
+        // Create the app instance
+        let mut app = Self {
             folder_list: FolderList::default(),
             bucket_view: BucketView::default(),
             folder_content: FolderContent::default(),
@@ -76,7 +78,45 @@ impl Default for S3SyncApp {
             status_rx: rx,
             rt: Handle::current(),
             credential_manager: CredentialManager::default(),
+        };
+        
+        // Try to load credentials from the system keyring
+        if CredentialManager::has_credentials() {
+            match (
+                CredentialManager::load_access_key(),
+                CredentialManager::load_secret_key(),
+                CredentialManager::load_region()
+            ) {
+                (Ok(access_key), Ok(secret_key), Ok(region)) if !access_key.is_empty() && !secret_key.is_empty() => {
+                    // Update the settings view with the loaded credentials
+                    app.settings_view.set_aws_access_key(access_key.clone());
+                    app.settings_view.set_aws_secret_key(secret_key.clone());
+                    app.settings_view.set_aws_region(region.clone());
+                    
+                    // Update AWS auth with the loaded credentials
+                    let auth_clone = app.aws_auth.clone();
+                    let access_key_clone = access_key.clone();
+                    let secret_key_clone = secret_key.clone();
+                    let region_clone = region.clone();
+                    
+                    // Use a blocking task to set the credentials
+                    tokio::task::block_in_place(|| {
+                        app.rt.block_on(async {
+                            let mut auth = auth_clone.lock().await;
+                            auth.set_credentials(access_key_clone, secret_key_clone, region_clone);
+                        });
+                    });
+                    
+                    app.status_message = format!("Loaded credentials from keyring for region {}", region);
+                },
+                _ => {
+                    // No credentials found or error loading them
+                    app.status_message = "No saved credentials found. Please enter your AWS credentials in Settings.".to_string();
+                }
+            }
         }
+        
+        app
     }
 }
 
@@ -100,6 +140,9 @@ impl epi::App for S3SyncApp {
                 StatusMessage::ObjectList(objects) => {
                     self.bucket_view.set_objects(objects);
                     self.status_message = format!("Loaded {} objects", self.bucket_view.objects().len());
+                },
+                StatusMessage::BucketList(buckets) => {
+                    self.bucket_view.set_buckets(buckets);
                 },
                 StatusMessage::Progress(progress) => {
                     self.progress_view.update_progress(progress);
@@ -217,8 +260,34 @@ impl epi::App for S3SyncApp {
                             if let Some(folder_path) = self.folder_list.selected_folder() {
                                 self.folder_content.set_folder(folder_path.clone());
                                 self.folder_content.ui(ui);
+                            } else if let Some(bucket) = self.bucket_view.selected_bucket() {
+                                // Display bucket objects in the content area
+                                ui.heading(&format!("Bucket: {}", bucket));
+                                
+                                // Display objects from the bucket
+                                egui::ScrollArea::vertical().show(ui, |ui| {
+                                    for (index, obj) in self.bucket_view.objects().iter().enumerate() {
+                                        // Create a unique ID for each object
+                                        let id = egui::Id::new(format!("obj_{}", index));
+                                        
+                                        // Use a group to create a separate ID context
+                                        egui::Frame::none().show(ui, |ui| {
+                                            let label_text = if obj.is_directory {
+                                                format!("📁 {}", obj.key)
+                                            } else {
+                                                format!("📄 {} ({} bytes)", obj.key, obj.size)
+                                            };
+                                            
+                                            ui.label(label_text);
+                                        });
+                                    }
+                                    
+                                    if self.bucket_view.objects().is_empty() {
+                                        ui.label("No objects in this bucket");
+                                    }
+                                });
                             } else {
-                                ui.label("Select a folder to view its contents");
+                                ui.label("Select a folder or bucket to view its contents");
                             }
                         });
                     });
@@ -296,6 +365,7 @@ impl S3SyncApp {
     fn connect_to_aws(&mut self) {
         let auth_clone = self.aws_auth.clone();
         let tx = self.status_tx.clone();
+        let bucket_view_tx = self.status_tx.clone();
         
         self.set_status_info("Connecting to AWS...");
         
@@ -315,7 +385,10 @@ impl S3SyncApp {
                     let mut bucket_view = BucketView::default();
                     match bucket_view.load_buckets(auth_clone).await {
                         Ok(buckets) => {
-                            let _ = tx.send(StatusMessage::Info(format!("Found {} buckets", buckets.len())));
+                            // Send the bucket list to the main thread
+                            let bucket_count = buckets.len();
+                            let _ = bucket_view_tx.send(StatusMessage::BucketList(buckets));
+                            let _ = tx.send(StatusMessage::Info(format!("Found {} buckets", bucket_count)));
                         },
                         Err(e) => {
                             let _ = tx.send(StatusMessage::Error(format!("Failed to list buckets: {}", e)));
