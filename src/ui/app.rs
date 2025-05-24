@@ -264,26 +264,28 @@ impl epi::App for S3SyncApp {
                                 // Display bucket objects in the content area
                                 ui.heading(&format!("Bucket: {}", bucket));
                                 
-                                // Display objects from the bucket
-                                egui::ScrollArea::vertical().show(ui, |ui| {
-                                    for (index, obj) in self.bucket_view.objects().iter().enumerate() {
-                                        // Create a unique ID for each object
-                                        let id = egui::Id::new(format!("obj_{}", index));
-                                        
-                                        // Use a group to create a separate ID context
-                                        egui::Frame::none().show(ui, |ui| {
-                                            let label_text = if obj.is_directory {
-                                                format!("📁 {}", obj.key)
-                                            } else {
-                                                format!("📄 {} ({} bytes)", obj.key, obj.size)
-                                            };
-                                            
-                                            ui.label(label_text);
-                                        });
-                                    }
-                                    
+                                // Display objects from the bucket using a simpler approach
+                                egui::ScrollArea::vertical().id_source("bucket_objects_scroll").show(ui, |ui| {
                                     if self.bucket_view.objects().is_empty() {
                                         ui.label("No objects in this bucket");
+                                    } else {
+                                        // Add each object as a separate widget
+                                        for (index, obj) in self.bucket_view.objects().iter().enumerate() {
+                                            // Use a container with a unique ID
+                                            egui::containers::Frame::none()
+                                                .show(ui, |ui| {
+                                                    let label_text = if obj.is_directory {
+                                                        format!("📁 {}", obj.key)
+                                                    } else {
+                                                        format!("📄 {} ({} bytes)", obj.key, obj.size)
+                                                    };
+                                                    
+                                                    ui.add(egui::Label::new(label_text).wrap(false));
+                                                });
+                                            
+                                            // Add some spacing between items
+                                            ui.add_space(2.0);
+                                        }
                                     }
                                 });
                             } else {
