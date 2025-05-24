@@ -642,15 +642,16 @@ impl S3SyncApp {
                 }
                 
                 // Create a transfer manager
-                let auth_clone = {
-                    let auth_guard = match self.aws_auth.lock() {
-                        Ok(guard) => guard.clone(),
-                        Err(e) => {
-                            self.set_status_error(&format!("Failed to acquire lock on AWS auth: {}", e));
-                            return;
-                        }
-                    }
-                };
+                let auth_clone = self.aws_auth.clone();
+                // let auth_clone = {
+                //     let auth_guard = match self.aws_auth.lock() {
+                //         Ok(guard) => guard.clone(),
+                //         Err(e) => {
+                //             self.set_status_error(&format!("Failed to acquire lock on AWS auth: {}", e));
+                //             return;
+                //         }
+                //     }
+                // };
                 
                 let rt = self.rt.clone();
                 let tx = self.status_tx.clone();
@@ -759,15 +760,16 @@ impl S3SyncApp {
                 }
                 
                 // Create a transfer manager
-                let auth_clone = {
-                    let auth_guard = match self.aws_auth.lock() {
-                        Ok(guard) => guard.clone(),
-                        Err(e) => {
-                            self.set_status_error(&format!("Failed to acquire lock on AWS auth: {}", e));
-                            return;
-                        }
-                    }
-                };
+                let auth_clone = self.aws_auth.clone();
+                // let auth_clone = {
+                //     let auth_guard = match self.aws_auth.lock() {
+                //         Ok(guard) => guard.clone(),
+                //         Err(e) => {
+                //             self.set_status_error(&format!("Failed to acquire lock on AWS auth: {}", e));
+                //             return;
+                //         }
+                //     }
+                // };
                 
                 let rt = self.rt.clone();
                 let tx = self.status_tx.clone();
