@@ -1,9 +1,11 @@
+The `bucket_view.rs` file has some structural issues with mismatched braces. It would be best to rewrite the entire file to ensure proper structure. Here's a suggested structure:
+
+```rust
 use eframe::egui;
-use std::sync::{Arc};
-use log::{error, debug};
+use std::sync::{Arc, Mutex};
+use log::{info, error, debug};
 use std::collections::{HashMap, HashSet};
-use tokio::sync::Mutex as TokioMutex;
-use aws_sdk_s3::error::ProvideErrorMetadata;
+use chrono::DateTime;
 
 use crate::aws::auth::AwsAuth;
 
@@ -97,7 +99,7 @@ impl BucketView {
         
         // Show loading indicator if loading
         if self.loading {
-            ui.add(egui::Spinner::new());
+            ui.spinner();
         }
         
         selection_changed
@@ -201,13 +203,13 @@ impl BucketView {
     }
     
     /// Load buckets from AWS
-    pub async fn load_buckets(&mut self, aws_auth: Arc<TokioMutex<AwsAuth>>) -> Result<Vec<String>, String> {
+    pub async fn load_buckets(&mut self, aws_auth: Arc<Mutex<AwsAuth>>) -> Result<Vec<String>, String> {
         debug!("Loading buckets from AWS");
         self.loading = true;
         
         // Get the client
         let client = {
-            let mut auth = aws_auth.lock().await;
+            let mut auth = aws_auth.lock().unwrap();
             match auth.get_client().await {
                 Ok(client) => client.clone(),
                 Err(e) => {
@@ -236,12 +238,12 @@ impl BucketView {
                         match self.get_bucket_location(&client, bucket).await {
                             Ok(region) => {
                                 debug!("Bucket {} is in region {}", bucket, region);
-                                self.bucket_regions.insert(bucket.to_string(), region);
+                                self.bucket_regions.insert(bucket.clone(), region);
                             },
                             Err(e) => {
                                 error!("Failed to get region for bucket {}: {}", bucket, e);
                                 // Default to us-east-1
-                                self.bucket_regions.insert(bucket.to_string(), "us-east-1".to_string());
+                                self.bucket_regions.insert(bucket.clone(), "us-east-1".to_string());
                             }
                         }
                     }
@@ -265,7 +267,7 @@ impl BucketView {
     }
     
     /// Load objects from the selected bucket
-    pub async fn load_objects(&mut self, aws_auth: Arc<TokioMutex<AwsAuth>>, bucket: &str) -> Result<Vec<S3Object>, String> {
+    pub async fn load_objects(&mut self, aws_auth: Arc<Mutex<AwsAuth>>, bucket: &str) -> Result<Vec<S3Object>, String> {
         debug!("Loading objects from bucket: {}", bucket);
         self.loading = true;
         
@@ -275,7 +277,7 @@ impl BucketView {
             None => {
                 // Try to get the region
                 let client = {
-                    let mut auth = aws_auth.lock().await;
+                    let mut auth = aws_auth.lock().unwrap();
                     match auth.get_client().await {
                         Ok(client) => client.clone(),
                         Err(e) => {
@@ -304,7 +306,7 @@ impl BucketView {
         
         // Get a client for the specific region
         let client = {
-            let mut auth = aws_auth.lock().await;
+            let mut auth = aws_auth.lock().unwrap();
             match auth.get_client_for_region(&bucket_region).await {
                 Ok(client) => client,
                 Err(e) => {
@@ -470,3 +472,4 @@ impl BucketView {
         }
     }
 }
+```

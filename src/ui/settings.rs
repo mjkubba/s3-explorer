@@ -1,5 +1,33 @@
 use eframe::egui;
 
+/// Settings data structure
+#[derive(Clone, Debug)]
+pub struct Settings {
+    pub aws_access_key: String,
+    pub aws_secret_key: String,
+    pub aws_region: String,
+    pub sync_interval: u32,
+    pub delete_enabled: bool,
+    pub bandwidth_limit: Option<u32>,
+    pub exclude_patterns: String,
+    pub save_credentials: bool,
+}
+
+impl Default for Settings {
+    fn default() -> Self {
+        Self {
+            aws_access_key: String::new(),
+            aws_secret_key: String::new(),
+            aws_region: "us-east-1".to_string(),
+            sync_interval: 0,
+            delete_enabled: false,
+            bandwidth_limit: None,
+            exclude_patterns: String::new(),
+            save_credentials: false,
+        }
+    }
+}
+
 /// Component for application settings
 #[derive(Default)]
 pub struct SettingsView {
@@ -10,12 +38,17 @@ pub struct SettingsView {
     delete_enabled: bool,
     bandwidth_limit: Option<u32>,
     exclude_patterns: String,
+    save_credentials: bool,
+    settings_applied: bool,
 }
 
 impl SettingsView {
-    /// Render the settings UI
-    pub fn ui(&mut self, ui: &mut egui::Ui) {
+    /// Render the settings UI and return true if settings were applied
+    pub fn ui(&mut self, ui: &mut egui::Ui) -> bool {
         ui.heading("Settings");
+        
+        // Reset the settings_applied flag
+        self.settings_applied = false;
         
         egui::Grid::new("settings_grid")
             .num_columns(2)
@@ -42,6 +75,10 @@ impl SettingsView {
                             ui.selectable_value(&mut self.aws_region, region.to_string(), *region);
                         }
                     });
+                ui.end_row();
+                
+                ui.label("Save credentials:");
+                ui.checkbox(&mut self.save_credentials, "Save AWS credentials securely");
                 ui.end_row();
                 
                 ui.add_space(10.0);
@@ -89,6 +126,38 @@ impl SettingsView {
                 ui.text_edit_multiline(&mut self.exclude_patterns);
                 ui.end_row();
             });
+            
+        ui.separator();
+        
+        let mut result = self.settings_applied;
+        
+        ui.horizontal(|ui| {
+            if ui.button("Apply Settings").clicked() {
+                self.settings_applied = true;
+                result = true;
+            }
+            
+            if ui.button("Cancel").clicked() {
+                // Return to previous screen without applying settings
+                result = true;
+            }
+        });
+        
+        result
+    }
+    
+    /// Get the current settings
+    pub fn get_settings(&self) -> Settings {
+        Settings {
+            aws_access_key: self.aws_access_key.clone(),
+            aws_secret_key: self.aws_secret_key.clone(),
+            aws_region: self.aws_region.clone(),
+            sync_interval: self.sync_interval,
+            delete_enabled: self.delete_enabled,
+            bandwidth_limit: self.bandwidth_limit,
+            exclude_patterns: self.exclude_patterns.clone(),
+            save_credentials: self.save_credentials,
+        }
     }
     
     /// Get the AWS access key

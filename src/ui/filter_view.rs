@@ -31,8 +31,8 @@ impl FilterView {
         }
     }
     
-    /// Render the filter UI
-    pub fn ui(&mut self, ui: &mut egui::Ui) {
+    /// Render the filter UI and return true if changes were applied
+    pub fn ui(&mut self, ui: &mut egui::Ui) -> bool {
         ui.heading("File Filters");
         
         // Reset the changes_applied flag
@@ -94,6 +94,14 @@ impl FilterView {
                 self.clear_filters();
             }
         });
+        
+        // Return whether changes were applied
+        self.changes_applied
+    }
+    
+    /// Get the current filter
+    pub fn get_filter(&self) -> Arc<Mutex<FileFilter>> {
+        self.filter.clone()
     }
     
     /// Apply the configured filters

@@ -1,5 +1,5 @@
 use eframe::egui;
-use std::path::{Path, PathBuf};
+use std::path::{PathBuf};
 use std::fs;
 use log::{debug, error};
 use chrono::{DateTime, Utc};
@@ -11,6 +11,7 @@ pub struct FolderContent {
     files: Vec<FileEntry>,
     filter: String,
     selected_files: HashSet<PathBuf>,
+    current_folder: Option<PathBuf>,
 }
 
 /// Represents a file or directory in the folder
@@ -23,149 +24,170 @@ pub struct FileEntry {
     pub last_modified: String,
 }
 
+impl std::fmt::Display for FileEntry {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.name)
+    }
+}
+
 impl FolderContent {
     /// Render the folder content UI
     pub fn ui(&mut self, ui: &mut egui::Ui) {
         ui.heading("Local Files");
         
-        // Filter and selection controls
+        // Filter input
         ui.horizontal(|ui| {
             ui.label("Filter:");
-            ui.text_edit_singleline(&mut self.filter);
+            if ui.text_edit_singleline(&mut self.filter).changed() {
+                // Filter changed
+            }
             
             if ui.button("Clear").clicked() {
                 self.filter.clear();
             }
-            
-            ui.separator();
-            
-            if ui.button("Select All").clicked() {
-                self.select_all_visible();
-            }
-            
-            if ui.button("Deselect All").clicked() {
-                self.selected_files.clear();
-            }
-            
-            ui.label(format!("{} selected", self.selected_files.len()));
         });
-        
-        ui.separator();
         
         // File list
         egui::ScrollArea::vertical().show(ui, |ui| {
+            if self.files.is_empty() {
+                ui.label("No files to display");
+                return;
+            }
+            
             // Table header
             ui.horizontal(|ui| {
-                ui.checkbox(&mut false, ""); // Placeholder for alignment
                 ui.label(egui::RichText::new("Name").strong());
-                ui.add_space(180.0);
+                ui.add_space(200.0);
                 ui.label(egui::RichText::new("Size").strong());
-                ui.add_space(100.0);
-                ui.label(egui::RichText::new("Last Modified").strong());
+                ui.add_space(80.0);
+                ui.label(egui::RichText::new("Modified").strong());
             });
             
             ui.separator();
             
-            // Table rows
-            if self.files.is_empty() {
-                ui.label("No files in this folder");
-            } else {
-                let filter = self.filter.to_lowercase();
+            // Filter files
+            let filter = self.filter.to_lowercase();
+            let filtered_files: Vec<_> = self.files.iter()
+                .filter(|file| {
+                    filter.is_empty() || file.name.to_lowercase().contains(&filter)
+                })
+                .collect();
+            
+            // Display files
+            for file in filtered_files {
+                let is_selected = self.selected_files.contains(&file.path);
                 
-                for file in &self.files {
-                    if !filter.is_empty() && !file.name.to_lowercase().contains(&filter) {
-                        continue;
+                ui.horizontal(|ui| {
+                    // Selection checkbox
+                    let mut selected = is_selected;
+                    if ui.checkbox(&mut selected, "").changed() {
+                        if selected {
+                            self.selected_files.insert(file.path.clone());
+                        } else {
+                            self.selected_files.remove(&file.path);
+                        }
                     }
                     
-                    let is_selected = self.selected_files.contains(&file.path);
-                    let mut selected = is_selected;
+                    // File name
+                    let text = if file.is_directory {
+                        egui::RichText::new(&file.name).strong()
+                    } else {
+                        egui::RichText::new(&file.name)
+                    };
                     
-                    ui.horizontal(|ui| {
-                        if ui.checkbox(&mut selected, "").changed() {
-                            if selected {
-                                self.selected_files.insert(file.path.clone());
-                            } else {
-                                self.selected_files.remove(&file.path);
-                            }
-                        }
-                        
-                        let icon = if file.is_directory { "📁 " } else { "📄 " };
-                        let text = format!("{}{}", icon, file.name);
-                        let text = if is_selected {
-                            egui::RichText::new(text).strong()
+                    if ui.selectable_label(is_selected, text).clicked() {
+                        if is_selected {
+                            self.selected_files.remove(&file.path);
                         } else {
-                            egui::RichText::new(text)
-                        };
-                        
-                        if ui.label(text).clicked() {
-                            if self.selected_files.contains(&file.path) {
-                                self.selected_files.remove(&file.path);
-                            } else {
-                                self.selected_files.insert(file.path.clone());
-                            }
+                            self.selected_files.insert(file.path.clone());
                         }
-                        
-                        ui.add_space(180.0 - file.name.len() as f32 * 7.0);
-                        
-                        let size_str = if file.is_directory {
-                            "-".to_string()
-                        } else {
-                            format_size(file.size)
-                        };
-                        
-                        ui.label(size_str);
-                        ui.add_space(100.0);
-                        ui.label(&file.last_modified);
-                    });
+                    }
                     
-                    ui.separator();
+                    ui.add_space(200.0 - file.name.len() as f32 * 7.0);
+                    
+                    // File size
+                    if file.is_directory {
+                        ui.label("--");
+                    } else {
+                        ui.label(format_size(file.size));
+                    }
+                    
+                    ui.add_space(80.0);
+                    
+                    // Last modified
+                    ui.label(&file.last_modified);
+                });
+            }
+        });
+        
+        // Actions
+        ui.separator();
+        
+        ui.horizontal(|ui| {
+            if ui.button("Select All").clicked() {
+                self.select_all_visible();
+            }
+            
+            if ui.button("Clear Selection").clicked() {
+                self.clear_selection();
+            }
+            
+            if ui.button("Refresh").clicked() {
+                if let Some(path) = &self.current_folder {
+                    self.load_files(path.clone());
                 }
             }
         });
     }
     
-    /// Load the contents of a folder
-    pub fn load_folder(&mut self, path: &Path) {
-        debug!("Loading folder contents: {}", path.display());
-        self.files.clear();
+    /// Set the current folder to display
+    pub fn set_folder(&mut self, path: PathBuf) {
+        debug!("Setting folder to: {}", path.display());
+        self.current_folder = Some(path.clone());
         self.selected_files.clear();
+        self.load_files(path);
+    }
+    
+    /// Load files from the specified path
+    fn load_files(&mut self, path: PathBuf) {
+        self.files.clear();
         
-        match fs::read_dir(path) {
+        match fs::read_dir(&path) {
             Ok(entries) => {
                 for entry in entries {
                     if let Ok(entry) = entry {
                         let file_path = entry.path();
-                        let file_name = entry.file_name().to_string_lossy().to_string();
-                        let is_directory = file_path.is_dir();
-                        
-                        // Get file metadata
-                        let (size, last_modified) = match entry.metadata() {
-                            Ok(metadata) => {
-                                let size = metadata.len();
-                                let last_modified = match metadata.modified() {
-                                    Ok(time) => {
-                                        // Convert system time to chrono DateTime
-                                        let datetime: DateTime<Utc> = time.into();
-                                        datetime.format("%Y-%m-%d %H:%M:%S").to_string()
-                                    },
-                                    Err(_) => "Unknown".to_string(),
-                                };
-                                (size, last_modified)
-                            },
-                            Err(_) => (0, "Unknown".to_string()),
+                        let file_name = file_path.file_name()
+                            .unwrap_or_default()
+                            .to_string_lossy()
+                            .to_string();
+                            
+                        let is_dir = file_path.is_dir();
+                        let size = if is_dir {
+                            0 // Directories show as 0 size
+                        } else {
+                            fs::metadata(&file_path).map(|m| m.len()).unwrap_or(0)
                         };
                         
+                        let last_modified = fs::metadata(&file_path)
+                            .and_then(|m| m.modified())
+                            .map(|time| {
+                                let dt: DateTime<Utc> = time.into();
+                                dt.format("%Y-%m-%d %H:%M:%S").to_string()
+                            })
+                            .unwrap_or_else(|_| "Unknown".to_string());
+                            
                         self.files.push(FileEntry {
                             path: file_path,
                             name: file_name,
-                            is_directory,
+                            is_directory: is_dir,
                             size,
                             last_modified,
                         });
                     }
                 }
                 
-                // Sort: directories first, then by name
+                // Sort files: directories first, then by name
                 self.files.sort_by(|a, b| {
                     match (a.is_directory, b.is_directory) {
                         (true, false) => std::cmp::Ordering::Less,
@@ -173,22 +195,9 @@ impl FolderContent {
                         _ => a.name.cmp(&b.name),
                     }
                 });
-                
-                debug!("Loaded {} files/directories", self.files.len());
             },
             Err(e) => {
                 error!("Failed to read directory {}: {}", path.display(), e);
-            }
-        }
-    }
-    
-    /// Select all visible files (those that match the current filter)
-    fn select_all_visible(&mut self) {
-        let filter = self.filter.to_lowercase();
-        
-        for file in &self.files {
-            if filter.is_empty() || file.name.to_lowercase().contains(&filter) {
-                self.selected_files.insert(file.path.clone());
             }
         }
     }
@@ -200,13 +209,51 @@ impl FolderContent {
             .collect()
     }
     
+    /// Set the filter for the file list
+    pub fn set_filter(&mut self, filter: String) {
+        self.filter = filter;
+    }
+    
+    /// Get the current filter
+    pub fn get_filter(&self) -> Option<&String> {
+        if self.filter.is_empty() {
+            None
+        } else {
+            Some(&self.filter)
+        }
+    }
+    
+    /// Select all visible files
+    pub fn select_all_visible(&mut self) {
+        let filter = self.filter.to_lowercase();
+        
+        for file in &self.files {
+            if filter.is_empty() || file.name.to_lowercase().contains(&filter) {
+                self.selected_files.insert(file.path.clone());
+            }
+        }
+    }
+    
     /// Clear all selections
     pub fn clear_selection(&mut self) {
         self.selected_files.clear();
     }
+    
+    /// Get the number of selected files
+    pub fn selected_count(&self) -> usize {
+        self.selected_files.len()
+    }
+    
+    /// Get the total size of selected files
+    pub fn selected_size(&self) -> u64 {
+        self.files.iter()
+            .filter(|file| self.selected_files.contains(&file.path))
+            .map(|file| file.size)
+            .sum()
+    }
 }
 
-/// Format file size in human-readable format
+/// Format a size in bytes as a human-readable string
 fn format_size(size: u64) -> String {
     const KB: u64 = 1024;
     const MB: u64 = KB * 1024;
