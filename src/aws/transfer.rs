@@ -28,6 +28,85 @@ impl TransferManager {
         Self { client }
     }
     
+    /// List S3 buckets
+    pub async fn list_buckets(&self) -> Result<Vec<String>> {
+        debug!("Listing S3 buckets");
+        
+        let resp = self.client.list_buckets().send().await?;
+        
+        let buckets = resp.buckets()
+            .unwrap_or_default()
+            .iter()
+            .filter_map(|b| b.name().map(|s| s.to_string()))
+            .collect();
+            
+        Ok(buckets)
+    }
+    
+    /// List objects in a bucket
+    pub async fn list_objects(&self, bucket: &str) -> Result<Vec<crate::ui::bucket_view::S3Object>> {
+        debug!("Listing objects in bucket {}", bucket);
+        
+        let mut objects = Vec::new();
+        let mut continuation_token = None;
+        
+        loop {
+            let mut req = self.client.list_objects_v2()
+                .bucket(bucket)
+                .delimiter("/");
+                
+            if let Some(token) = &continuation_token {
+                req = req.continuation_token(token);
+            }
+            
+            let resp = req.send().await?;
+            
+            // Process common prefixes (directories)
+            if let Some(prefixes) = resp.common_prefixes() {
+                for prefix in prefixes {
+                    if let Some(prefix_str) = prefix.prefix() {
+                        // Remove the trailing slash
+                        let key = prefix_str.trim_end_matches('/').to_string();
+                        
+                        objects.push(crate::ui::bucket_view::S3Object {
+                            key,
+                            size: 0,
+                            last_modified: String::new(),
+                            is_directory: true,
+                        });
+                    }
+                }
+            }
+            
+            // Process objects (files)
+            if let Some(contents) = resp.contents() {
+                for object in contents {
+                    let key = object.key().unwrap_or_default().to_string();
+                    let size = object.size() as u64;
+                    let last_modified = object.last_modified()
+                        .map(|d| format!("{:?}", d))
+                        .unwrap_or_default();
+                        
+                    objects.push(crate::ui::bucket_view::S3Object {
+                        key,
+                        size,
+                        last_modified,
+                        is_directory: false,
+                    });
+                }
+            }
+            
+            // Check if there are more objects
+            if resp.is_truncated() && resp.next_continuation_token().is_some() {
+                continuation_token = resp.next_continuation_token().map(|s| s.to_string());
+            } else {
+                break;
+            }
+        }
+        
+        Ok(objects)
+    }
+    
     /// Upload a file to S3
     pub async fn upload_file(
         &self,
@@ -140,24 +219,13 @@ impl TransferManager {
         // Flush and close the file
         file.flush().await?;
         
-        debug!("Download complete: {}", local_path.display());
-        
-        // Call the progress callback with 100% completion
-        if let Some(callback) = progress_callback {
-            callback(TransferProgress {
-                file_name,
-                bytes_transferred: total_size,
-                total_bytes: total_size,
-                percentage: 100.0,
-            });
-        }
-        
+        debug!("Download complete");
         Ok(())
     }
     
     /// Delete an object from S3
     pub async fn delete_object(&self, bucket: &str, s3_key: &str) -> Result<()> {
-        debug!("Deleting s3://{}/{}", bucket, s3_key);
+        debug!("Deleting object: s3://{}/{}", bucket, s3_key);
         
         self.client.delete_object()
             .bucket(bucket)
@@ -165,14 +233,13 @@ impl TransferManager {
             .send()
             .await?;
             
-        debug!("Delete complete: s3://{}/{}", bucket, s3_key);
-        
+        debug!("Object deleted");
         Ok(())
     }
     
     /// Check if an object exists in S3
     pub async fn object_exists(&self, bucket: &str, s3_key: &str) -> Result<bool> {
-        debug!("Checking if s3://{}/{} exists", bucket, s3_key);
+        debug!("Checking if object exists: s3://{}/{}", bucket, s3_key);
         
         match self.client.head_object()
             .bucket(bucket)
@@ -182,7 +249,6 @@ impl TransferManager {
         {
             Ok(_) => Ok(true),
             Err(e) => {
-                // Check if the error is a 404
                 if e.to_string().contains("404") {
                     Ok(false)
                 } else {
@@ -194,7 +260,7 @@ impl TransferManager {
     
     /// Get the size of an object in S3
     pub async fn get_object_size(&self, bucket: &str, s3_key: &str) -> Result<u64> {
-        debug!("Getting size of s3://{}/{}", bucket, s3_key);
+        debug!("Getting size of object: s3://{}/{}", bucket, s3_key);
         
         let resp = self.client.head_object()
             .bucket(bucket)
@@ -207,7 +273,7 @@ impl TransferManager {
     
     /// Get the ETag of an object in S3
     pub async fn get_object_etag(&self, bucket: &str, s3_key: &str) -> Result<String> {
-        debug!("Getting ETag of s3://{}/{}", bucket, s3_key);
+        debug!("Getting ETag of object: s3://{}/{}", bucket, s3_key);
         
         let resp = self.client.head_object()
             .bucket(bucket)
@@ -217,6 +283,6 @@ impl TransferManager {
             
         resp.e_tag()
             .map(|s| s.trim_matches('"').to_string())
-            .ok_or_else(|| anyhow!("ETag not found"))
+            .ok_or_else(|| anyhow!("ETag not found for object"))
     }
 }

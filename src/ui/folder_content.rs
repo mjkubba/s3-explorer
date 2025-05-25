@@ -11,7 +11,7 @@ pub struct FolderContent {
     files: Vec<FileEntry>,
     filter: String,
     selected_files: HashSet<PathBuf>,
-    current_folder: Option<PathBuf>,
+    pub current_folder: Option<PathBuf>,
 }
 
 /// Represents a file or directory in the folder
@@ -33,8 +33,6 @@ impl std::fmt::Display for FileEntry {
 impl FolderContent {
     /// Render the folder content UI
     pub fn ui(&mut self, ui: &mut egui::Ui) {
-        ui.heading("Local Files");
-        
         // Filter input
         ui.horizontal(|ui| {
             ui.label("Filter:");
@@ -56,11 +54,13 @@ impl FolderContent {
             
             // Table header
             ui.horizontal(|ui| {
-                ui.label(egui::RichText::new("Name").strong());
+                ui.style_mut().spacing.item_spacing.x = 10.0;
+                ui.strong("Type");
+                ui.strong("Name");
                 ui.add_space(200.0);
-                ui.label(egui::RichText::new("Size").strong());
-                ui.add_space(80.0);
-                ui.label(egui::RichText::new("Modified").strong());
+                ui.strong("Size");
+                ui.add_space(50.0);
+                ui.strong("Modified");
             });
             
             ui.separator();
@@ -78,6 +78,8 @@ impl FolderContent {
                 let is_selected = self.selected_files.contains(&file.path);
                 
                 ui.horizontal(|ui| {
+                    ui.style_mut().spacing.item_spacing.x = 10.0;
+                    
                     // Selection checkbox
                     let mut selected = is_selected;
                     if ui.checkbox(&mut selected, "").changed() {
@@ -87,6 +89,10 @@ impl FolderContent {
                             self.selected_files.remove(&file.path);
                         }
                     }
+                    
+                    // Type icon
+                    let icon = if file.is_directory { "📁" } else { "📄" };
+                    ui.label(icon);
                     
                     // File name
                     let text = if file.is_directory {
@@ -112,7 +118,7 @@ impl FolderContent {
                         ui.label(format_size(file.size));
                     }
                     
-                    ui.add_space(80.0);
+                    ui.add_space(50.0);
                     
                     // Last modified
                     ui.label(&file.last_modified);
@@ -150,11 +156,13 @@ impl FolderContent {
     
     /// Get the list of files
     pub fn files(&self) -> &[FileEntry] {
+        debug!("Returning {} files", self.files.len());
         &self.files
     }
     
     /// Load files from the specified path
     fn load_files(&mut self, path: PathBuf) {
+        debug!("Loading files from: {}", path.display());
         self.files.clear();
         
         match fs::read_dir(&path) {
@@ -200,6 +208,10 @@ impl FolderContent {
                         _ => a.name.cmp(&b.name),
                     }
                 });
+                
+                debug!("Loaded {} files from {}", self.files.len(), path.display());
+                
+                debug!("Loaded {} files from {}", self.files.len(), path.display());
             },
             Err(e) => {
                 error!("Failed to read directory {}: {}", path.display(), e);
@@ -268,7 +280,7 @@ fn format_size(size: u64) -> String {
         format!("{} B", size)
     } else if size < MB {
         format!("{:.2} KB", size as f64 / KB as f64)
-    } else if size < MB {
+    } else if size < GB {
         format!("{:.2} MB", size as f64 / MB as f64)
     } else {
         format!("{:.2} GB", size as f64 / GB as f64)

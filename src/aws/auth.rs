@@ -52,6 +52,21 @@ impl AwsAuth {
         self.region_clients.clear();
     }
     
+    /// Initialize the AWS client
+    pub async fn initialize(&mut self) -> Result<()> {
+        debug!("Initializing AWS client");
+        
+        if self.access_key.is_empty() || self.secret_key.is_empty() {
+            return Err(anyhow!("AWS credentials not set"));
+        }
+        
+        // Create the client
+        let _ = self.get_client().await?;
+        
+        // Test the credentials
+        self.test_credentials().await
+    }
+    
     /// Load credentials from the system keyring
     pub fn load_credentials(&mut self) -> Result<()> {
         debug!("Loading AWS credentials from keyring");
