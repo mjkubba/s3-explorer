@@ -381,4 +381,68 @@ impl ProgressView {
             tracker: self.tracker.clone(),
         }
     }
+    
+    /// Add a file to track
+    pub fn add_file(&self, file_name: &str, size: u64) {
+        let entry = ProgressInfo {
+            file_name: file_name.to_string(),
+            operation_type: OperationType::Upload, // Default to upload
+            bytes_transferred: 0,
+            total_bytes: size,
+            percentage: 0.0,
+            status: ProgressStatus::Pending,
+            message: String::new(),
+            timestamp: Instant::now(),
+        };
+        
+        self.add_entry(entry);
+    }
+    
+    /// Mark a file as complete
+    pub fn complete_file(&self, file_name: &str) {
+        let mut tracker = self.tracker.lock().unwrap();
+        if let Some(entry) = tracker.entries.get_mut(file_name) {
+            // Update the entry directly
+            entry.bytes_transferred = entry.total_bytes;
+            entry.percentage = 100.0;
+            entry.status = ProgressStatus::Completed;
+            
+            // Update the completed operations count
+            tracker.completed_operations += 1;
+        }
+    }
+    
+    /// Mark a file as failed
+    pub fn fail_file(&self, file_name: &str) {
+        self.fail_operation(file_name, "Transfer failed");
+    }
+    
+    /// Mark the sync operation as complete
+    pub fn complete_sync(&self) {
+        // Nothing to do here, just a placeholder for the API
+    }
+    
+    /// Update progress for a file
+    pub fn update_progress(&self, progress: crate::aws::transfer::TransferProgress) {
+        self.update_entry(
+            &progress.file_name,
+            progress.bytes_transferred,
+            progress.percentage
+        );
+    }
+    
+    /// Show the progress view as a modal overlay
+    pub fn show(&self, ctx: &egui::Context) {
+        let mut open = true;
+        
+        egui::Window::new("Transfer Progress")
+            .open(&mut open)
+            .collapsible(false)
+            .resizable(true)
+            .default_size([600.0, 400.0])
+            .show(ctx, |ui| {
+                let mut view = self.clone();
+                view.ui(ui);
+            });
+    }
 }

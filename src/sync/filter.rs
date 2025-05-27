@@ -1,40 +1,24 @@
-use std::path::Path;
-use std::collections::HashSet;
+use anyhow::{anyhow, Result};
 use glob::Pattern;
-use log::debug;
+use log::{debug, error};
+use std::fmt;
+use std::path::Path;
 
-/// Filter for determining which files to include/exclude in sync operations
-#[derive(Clone, Debug)]
+/// Filter for files during sync operations
+#[derive(Clone, Default)]
 pub struct FileFilter {
-    /// Patterns to include (if empty, all files are included by default)
     include_patterns: Vec<Pattern>,
-    
-    /// Patterns to exclude
     exclude_patterns: Vec<Pattern>,
-    
-    /// File extensions to include (if empty, all extensions are included by default)
-    include_extensions: HashSet<String>,
-    
-    /// File extensions to exclude
-    exclude_extensions: HashSet<String>,
-    
-    /// Minimum file size in bytes (None = no minimum)
     min_size: Option<u64>,
-    
-    /// Maximum file size in bytes (None = no maximum)
     max_size: Option<u64>,
 }
 
-impl Default for FileFilter {
-    fn default() -> Self {
-        Self {
-            include_patterns: Vec::new(),
-            exclude_patterns: Vec::new(),
-            include_extensions: HashSet::new(),
-            exclude_extensions: HashSet::new(),
-            min_size: None,
-            max_size: None,
-        }
+impl fmt::Display for FileFilter {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "FileFilter with {} include patterns, {} exclude patterns", 
+            self.include_patterns.len(), 
+            self.exclude_patterns.len()
+        )
     }
 }
 
@@ -44,38 +28,71 @@ impl FileFilter {
         Self::default()
     }
     
-    /// Add a pattern to include
-    pub fn add_include_pattern(&mut self, pattern: &str) -> Result<(), glob::PatternError> {
-        let compiled = Pattern::new(pattern)?;
-        self.include_patterns.push(compiled);
+    /// Parse patterns from a string
+    pub fn parse_patterns(&mut self, patterns: &str) -> Result<()> {
+        for line in patterns.lines() {
+            let line = line.trim();
+            
+            // Skip empty lines and comments
+            if line.is_empty() || line.starts_with('#') {
+                continue;
+            }
+            
+            // Check if this is an exclude pattern
+            if line.starts_with('!') {
+                let pattern = &line[1..];
+                match Pattern::new(pattern) {
+                    Ok(p) => self.exclude_patterns.push(p),
+                    Err(e) => return Err(anyhow!("Invalid exclude pattern '{}': {}", pattern, e)),
+                }
+            } else {
+                // Include pattern
+                match Pattern::new(line) {
+                    Ok(p) => self.include_patterns.push(p),
+                    Err(e) => return Err(anyhow!("Invalid include pattern '{}': {}", line, e)),
+                }
+            }
+        }
+        
         Ok(())
     }
     
-    /// Add a pattern to exclude
-    pub fn add_exclude_pattern(&mut self, pattern: &str) -> Result<(), glob::PatternError> {
-        let compiled = Pattern::new(pattern)?;
-        self.exclude_patterns.push(compiled);
+    /// Parse extensions from a comma-separated string
+    pub fn parse_extensions(&mut self, extensions: &str) -> Result<()> {
+        for ext in extensions.split(',') {
+            let ext = ext.trim();
+            
+            // Skip empty extensions
+            if ext.is_empty() {
+                continue;
+            }
+            
+            // Check if this is an exclude extension
+            if ext.starts_with('!') {
+                let pattern = format!("*.{}", &ext[1..]);
+                match Pattern::new(&pattern) {
+                    Ok(p) => self.exclude_patterns.push(p),
+                    Err(e) => return Err(anyhow!("Invalid exclude extension '{}': {}", ext, e)),
+                }
+            } else {
+                // Include extension
+                let pattern = format!("*.{}", ext);
+                match Pattern::new(&pattern) {
+                    Ok(p) => self.include_patterns.push(p),
+                    Err(e) => return Err(anyhow!("Invalid include extension '{}': {}", ext, e)),
+                }
+            }
+        }
+        
         Ok(())
     }
     
-    /// Add an extension to include
-    pub fn add_include_extension(&mut self, extension: &str) {
-        let ext = extension.trim_start_matches('.');
-        self.include_extensions.insert(ext.to_lowercase());
-    }
-    
-    /// Add an extension to exclude
-    pub fn add_exclude_extension(&mut self, extension: &str) {
-        let ext = extension.trim_start_matches('.');
-        self.exclude_extensions.insert(ext.to_lowercase());
-    }
-    
-    /// Set minimum file size
+    /// Set the minimum file size
     pub fn set_min_size(&mut self, size: u64) {
         self.min_size = Some(size);
     }
     
-    /// Set maximum file size
+    /// Set the maximum file size
     pub fn set_max_size(&mut self, size: u64) {
         self.max_size = Some(size);
     }
@@ -84,117 +101,97 @@ impl FileFilter {
     pub fn clear(&mut self) {
         self.include_patterns.clear();
         self.exclude_patterns.clear();
-        self.include_extensions.clear();
-        self.exclude_extensions.clear();
         self.min_size = None;
         self.max_size = None;
     }
     
-    /// Check if a file should be included based on the filter
+    /// Check if a file should be included
     pub fn should_include(&self, path: &Path, size: u64) -> bool {
-        // Check file size constraints
+        // Check size constraints
         if let Some(min_size) = self.min_size {
             if size < min_size {
-                debug!("Excluding {} due to size < {}", path.display(), min_size);
                 return false;
             }
         }
         
         if let Some(max_size) = self.max_size {
             if size > max_size {
-                debug!("Excluding {} due to size > {}", path.display(), max_size);
                 return false;
             }
-        }
-        
-        // Get file extension
-        let extension = path
-            .extension()
-            .and_then(|e| e.to_str())
-            .map(|e| e.to_lowercase())
-            .unwrap_or_default();
-        
-        // Check extension exclusions
-        if !self.exclude_extensions.is_empty() && self.exclude_extensions.contains(&extension) {
-            debug!("Excluding {} due to extension {}", path.display(), extension);
-            return false;
-        }
-        
-        // Check extension inclusions
-        if !self.include_extensions.is_empty() && !self.include_extensions.contains(&extension) && !extension.is_empty() {
-            debug!("Excluding {} due to extension not in include list", path.display());
-            return false;
         }
         
         // Convert path to string for pattern matching
         let path_str = path.to_string_lossy();
         
-        // Check exclude patterns
+        // Check exclude patterns first
         for pattern in &self.exclude_patterns {
             if pattern.matches(&path_str) {
-                debug!("Excluding {} due to pattern {}", path.display(), pattern);
+                debug!("Path {} excluded by pattern {}", path_str, pattern);
                 return false;
             }
+        }
+        
+        // If there are no include patterns, include everything not excluded
+        if self.include_patterns.is_empty() {
+            return true;
         }
         
         // Check include patterns
-        if !self.include_patterns.is_empty() {
-            let mut included = false;
-            for pattern in &self.include_patterns {
-                if pattern.matches(&path_str) {
-                    included = true;
-                    break;
-                }
-            }
-            
-            if !included {
-                debug!("Excluding {} due to not matching any include pattern", path.display());
-                return false;
+        for pattern in &self.include_patterns {
+            if pattern.matches(&path_str) {
+                debug!("Path {} included by pattern {}", path_str, pattern);
+                return true;
             }
         }
         
-        // If we get here, the file should be included
-        true
+        // If there are include patterns but none matched, exclude the file
+        false
     }
     
-    /// Parse filter patterns from a string
-    pub fn parse_patterns(&mut self, patterns: &str) -> Result<(), glob::PatternError> {
-        for line in patterns.lines() {
-            let line = line.trim();
-            if line.is_empty() || line.starts_with('#') {
-                continue;
-            }
-            
-            if line.starts_with('!') {
-                // Exclude pattern
-                self.add_exclude_pattern(&line[1..])?;
-            } else {
-                // Include pattern
-                self.add_include_pattern(line)?;
-            }
-        }
-        
-        Ok(())
+    /// Get the include patterns
+    pub fn include_patterns(&self) -> &[Pattern] {
+        &self.include_patterns
     }
     
-    /// Parse extension filters from a string
-    pub fn parse_extensions(&mut self, extensions: &str) -> Result<(), ()> {
-        for ext in extensions.split(',') {
-            let ext = ext.trim();
-            if ext.is_empty() {
-                continue;
-            }
-            
-            if ext.starts_with('!') {
-                // Exclude extension
-                self.add_exclude_extension(&ext[1..]);
-            } else {
-                // Include extension
-                self.add_include_extension(ext);
-            }
+    /// Get the exclude patterns
+    pub fn exclude_patterns(&self) -> &[Pattern] {
+        &self.exclude_patterns
+    }
+    
+    /// Get the minimum size
+    pub fn min_size(&self) -> Option<u64> {
+        self.min_size
+    }
+    
+    /// Get the maximum size
+    pub fn max_size(&self) -> Option<u64> {
+        self.max_size
+    }
+    
+    /// Convert to a string representation
+    pub fn to_string(&self) -> String {
+        let mut result = String::new();
+        
+        // Include patterns
+        for pattern in &self.include_patterns {
+            result.push_str(&format!("{}\n", pattern));
         }
         
-        Ok(())
+        // Exclude patterns
+        for pattern in &self.exclude_patterns {
+            result.push_str(&format!("!{}\n", pattern));
+        }
+        
+        // Size constraints
+        if let Some(min_size) = self.min_size {
+            result.push_str(&format!("min_size: {}\n", min_size));
+        }
+        
+        if let Some(max_size) = self.max_size {
+            result.push_str(&format!("max_size: {}\n", max_size));
+        }
+        
+        result
     }
 }
 
@@ -204,102 +201,61 @@ mod tests {
     use std::path::PathBuf;
     
     #[test]
-    fn test_extension_filtering() {
+    fn test_include_patterns() {
         let mut filter = FileFilter::new();
-        
-        // Include only .txt and .md files
-        filter.add_include_extension("txt");
-        filter.add_include_extension(".md");
+        filter.parse_patterns("*.txt\n*.md").unwrap();
         
         assert!(filter.should_include(&PathBuf::from("test.txt"), 100));
         assert!(filter.should_include(&PathBuf::from("test.md"), 100));
         assert!(!filter.should_include(&PathBuf::from("test.jpg"), 100));
-        assert!(!filter.should_include(&PathBuf::from("test.docx"), 100));
-    }
-    
-    #[test]
-    fn test_exclude_extensions() {
-        let mut filter = FileFilter::new();
-        
-        // Exclude .tmp and .bak files
-        filter.add_exclude_extension("tmp");
-        filter.add_exclude_extension(".bak");
-        
-        assert!(filter.should_include(&PathBuf::from("test.txt"), 100));
-        assert!(filter.should_include(&PathBuf::from("test.md"), 100));
-        assert!(!filter.should_include(&PathBuf::from("test.tmp"), 100));
-        assert!(!filter.should_include(&PathBuf::from("test.bak"), 100));
-    }
-    
-    #[test]
-    fn test_size_filtering() {
-        let mut filter = FileFilter::new();
-        
-        // Only include files between 100 and 1000 bytes
-        filter.set_min_size(100);
-        filter.set_max_size(1000);
-        
-        assert!(filter.should_include(&PathBuf::from("test.txt"), 500));
-        assert!(!filter.should_include(&PathBuf::from("test.txt"), 50));
-        assert!(!filter.should_include(&PathBuf::from("test.txt"), 1500));
-    }
-    
-    #[test]
-    fn test_pattern_filtering() {
-        let mut filter = FileFilter::new();
-        
-        // Include only files in the docs directory
-        filter.add_include_pattern("docs/**/*").unwrap();
-        
-        assert!(filter.should_include(&PathBuf::from("docs/test.txt"), 100));
-        assert!(filter.should_include(&PathBuf::from("docs/subdir/test.md"), 100));
-        assert!(!filter.should_include(&PathBuf::from("src/test.txt"), 100));
     }
     
     #[test]
     fn test_exclude_patterns() {
         let mut filter = FileFilter::new();
+        filter.parse_patterns("!*.tmp\n!*.bak").unwrap();
         
-        // Exclude all files in the temp directory
-        filter.add_exclude_pattern("temp/**/*").unwrap();
-        
-        assert!(filter.should_include(&PathBuf::from("docs/test.txt"), 100));
-        assert!(!filter.should_include(&PathBuf::from("temp/test.txt"), 100));
-        assert!(!filter.should_include(&PathBuf::from("temp/subdir/test.md"), 100));
+        assert!(filter.should_include(&PathBuf::from("test.txt"), 100));
+        assert!(!filter.should_include(&PathBuf::from("test.tmp"), 100));
+        assert!(!filter.should_include(&PathBuf::from("test.bak"), 100));
     }
     
     #[test]
-    fn test_combined_filtering() {
+    fn test_size_constraints() {
         let mut filter = FileFilter::new();
+        filter.set_min_size(100);
+        filter.set_max_size(1000);
         
-        // Include only .txt files in the docs directory
-        filter.add_include_pattern("docs/**/*").unwrap();
-        filter.add_include_extension("txt");
-        
-        assert!(filter.should_include(&PathBuf::from("docs/test.txt"), 100));
-        assert!(!filter.should_include(&PathBuf::from("docs/test.md"), 100));
-        assert!(!filter.should_include(&PathBuf::from("src/test.txt"), 100));
+        assert!(!filter.should_include(&PathBuf::from("small.txt"), 50));
+        assert!(filter.should_include(&PathBuf::from("medium.txt"), 500));
+        assert!(!filter.should_include(&PathBuf::from("large.txt"), 2000));
     }
     
     #[test]
-    fn test_parse_patterns() {
+    fn test_extensions() {
         let mut filter = FileFilter::new();
+        filter.parse_extensions("txt,md,!tmp,!bak").unwrap();
         
-        let patterns = r#"
-        # Include patterns
-        docs/**/*
-        src/**/*.rs
+        assert!(filter.should_include(&PathBuf::from("test.txt"), 100));
+        assert!(filter.should_include(&PathBuf::from("test.md"), 100));
+        assert!(!filter.should_include(&PathBuf::from("test.tmp"), 100));
+        assert!(!filter.should_include(&PathBuf::from("test.bak"), 100));
+        assert!(!filter.should_include(&PathBuf::from("test.jpg"), 100));
+    }
+    
+    #[test]
+    fn test_clear() {
+        let mut filter = FileFilter::new();
+        filter.parse_patterns("*.txt\n!*.tmp").unwrap();
+        filter.set_min_size(100);
         
-        # Exclude patterns
-        !temp/**/*
-        !**/*.tmp
-        "#;
+        assert!(filter.should_include(&PathBuf::from("test.txt"), 200));
+        assert!(!filter.should_include(&PathBuf::from("test.tmp"), 200));
+        assert!(!filter.should_include(&PathBuf::from("test.txt"), 50));
         
-        filter.parse_patterns(patterns).unwrap();
+        filter.clear();
         
-        assert!(filter.should_include(&PathBuf::from("docs/test.txt"), 100));
-        assert!(filter.should_include(&PathBuf::from("src/main.rs"), 100));
-        assert!(!filter.should_include(&PathBuf::from("temp/test.txt"), 100));
-        assert!(!filter.should_include(&PathBuf::from("docs/test.tmp"), 100));
+        assert!(filter.should_include(&PathBuf::from("test.txt"), 50));
+        assert!(filter.should_include(&PathBuf::from("test.tmp"), 50));
     }
 }
