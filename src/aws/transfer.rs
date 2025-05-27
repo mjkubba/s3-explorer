@@ -2,10 +2,14 @@ use anyhow::{anyhow, Result};
 use aws_sdk_s3::primitives::ByteStream;
 use aws_sdk_s3::Client;
 use log::debug;
+use log::error;
 use std::path::Path;
 use std::sync::Arc;
 use std::fs;
 use tokio::io::AsyncWriteExt;
+use chrono::{DateTime, Utc, TimeZone};
+
+use crate::aws::s3::S3ErrorHelper;
 
 /// Progress information for a file transfer
 #[derive(Debug, Clone)]
@@ -59,7 +63,20 @@ impl TransferManager {
                 req = req.continuation_token(token);
             }
             
-            let resp = req.send().await?;
+            // Improved error handling with detailed AWS error information
+            let resp = match req.send().await {
+                Ok(response) => response,
+                Err(e) => {
+                    // Use our helper to extract detailed error information
+                    let detailed_error = S3ErrorHelper::extract_error_details(&e);
+                    
+                    // Log the detailed error
+                    error!("Failed to list objects in bucket {}: {}", bucket, detailed_error);
+                    
+                    // Return with detailed error information
+                    return Err(anyhow!("S3 service error: {}", detailed_error));
+                }
+            };
             
             // Process common prefixes (directories)
             if let Some(prefixes) = resp.common_prefixes() {
@@ -84,8 +101,18 @@ impl TransferManager {
                     let key = object.key().unwrap_or_default().to_string();
                     let size = object.size() as u64;
                     let last_modified = object.last_modified()
-                        .map(|d| format!("{:?}", d))
+                        .map(|dt| {
+                            // Format the date in a human-readable format
+                            // Extract the timestamp from the debug representation
+                            let dt_str = format!("{:?}", dt);
+                            let dt_human = Utc.timestamp_opt(dt.secs(), 0)
+                            .single()
+                            .map(|dt| dt.format("%Y-%m-%d %H:%M:%S").to_string())
+                            .unwrap_or_default();
+                            dt_human
+                        })
                         .unwrap_or_default();
+
                         
                     objects.push(crate::ui::bucket_view::S3Object {
                         key,

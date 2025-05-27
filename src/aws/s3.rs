@@ -1,90 +1,74 @@
-use chrono::{DateTime, Utc};
+use anyhow::anyhow;
+use aws_sdk_s3::error::SdkError;
+use log::debug;
 
-/// Represents an object in an S3 bucket
-#[derive(Debug, Clone)]
-pub struct S3Object {
-    /// The key (path) of the object in the bucket
-    pub key: String,
+/// Helper functions for S3 error handling
+pub struct S3ErrorHelper;
+
+impl S3ErrorHelper {
+    /// Extract detailed error information from an AWS SDK error
+    pub fn extract_error_details<E>(error: &SdkError<E>) -> String 
+    where 
+        E: std::fmt::Debug + std::fmt::Display
+    {
+        debug!("Extracting error details from AWS SDK error: {:?}", error);
+        
+        // For AWS SDK errors, we need to extract information differently
+        // since code() and message() methods aren't directly available
+        
+        let error_string = format!("{:?}", error);
+        
+        // Try to extract error type from the debug output
+        let error_type = if error_string.contains("AccessDenied") {
+            "AccessDenied"
+        } else if error_string.contains("NoSuchBucket") {
+            "NoSuchBucket"
+        } else if error_string.contains("InvalidAccessKeyId") {
+            "InvalidAccessKeyId"
+        } else if error_string.contains("SignatureDoesNotMatch") {
+            "SignatureDoesNotMatch"
+        } else if error_string.contains("ExpiredToken") {
+            "ExpiredToken"
+        } else if error_string.contains("InvalidToken") {
+            "InvalidToken"
+        } else if error_string.contains("AuthorizationHeaderMalformed") {
+            "AuthorizationHeaderMalformed"
+        } else {
+            "Unknown"
+        };
+        
+        // Check for specific error types and provide additional information
+        let additional_info = match error_type {
+            "AccessDenied" => " - Check your IAM permissions for this bucket",
+            "NoSuchBucket" => " - The specified bucket does not exist",
+            "InvalidAccessKeyId" => " - The AWS access key ID you provided does not exist",
+            "SignatureDoesNotMatch" => " - The signature calculation is incorrect, check your secret key",
+            "ExpiredToken" => " - The provided token has expired, please refresh your credentials",
+            "InvalidToken" => " - The provided token is invalid, please check your credentials",
+            "AuthorizationHeaderMalformed" => " - The authorization header is malformed, check region configuration",
+            _ => "",
+        };
+        
+        // Construct a detailed error message
+        format!(
+            "AWS S3 error - Type: {}, Raw: {}{}", 
+            error_type,
+            error,
+            additional_info
+        )
+    }
     
-    /// The size of the object in bytes
-    pub size: u64,
-    
-    /// The last modified timestamp of the object
-    pub last_modified: Option<DateTime<Utc>>,
-    
-    /// The ETag of the object (usually the MD5 hash)
-    pub etag: Option<String>,
-    
-    /// The storage class of the object
-    pub storage_class: Option<String>,
+    /// Convert an AWS SDK error to an anyhow error with detailed information
+    pub fn convert_sdk_error<E>(error: SdkError<E>, operation: &str) -> anyhow::Error 
+    where 
+        E: std::fmt::Debug + std::fmt::Display
+    {
+        let detailed_error = Self::extract_error_details(&error);
+        anyhow!("S3 {} operation failed: {}", operation, detailed_error)
+    }
 }
 
-impl S3Object {
-    /// Create a new S3 object
-    pub fn new(key: String, size: u64) -> Self {
-        Self {
-            key,
-            size,
-            last_modified: None,
-            etag: None,
-            storage_class: None,
-        }
-    }
-    
-    /// Create a new S3 object with all fields
-    pub fn with_details(
-        key: String,
-        size: u64,
-        last_modified: Option<DateTime<Utc>>,
-        etag: Option<String>,
-        storage_class: Option<String>,
-    ) -> Self {
-        Self {
-            key,
-            size,
-            last_modified,
-            etag,
-            storage_class,
-        }
-    }
-    
-    /// Get the filename part of the key
-    pub fn filename(&self) -> String {
-        self.key
-            .split('/')
-            .last()
-            .unwrap_or(&self.key)
-            .to_string()
-    }
-    
-    /// Get the directory part of the key
-    pub fn directory(&self) -> String {
-        let parts: Vec<&str> = self.key.split('/').collect();
-        if parts.len() <= 1 {
-            return String::new();
-        }
-        
-        parts[0..parts.len() - 1].join("/")
-    }
-    
-    /// Format the size in a human-readable format
-    pub fn formatted_size(&self) -> String {
-        if self.size < 1024 {
-            format!("{} B", self.size)
-        } else if self.size < 1024 * 1024 {
-            format!("{:.2} KB", self.size as f64 / 1024.0)
-        } else if self.size < 1024 * 1024 * 1024 {
-            format!("{:.2} MB", self.size as f64 / (1024.0 * 1024.0))
-        } else {
-            format!("{:.2} GB", self.size as f64 / (1024.0 * 1024.0 * 1024.0))
-        }
-    }
-    
-    /// Format the last modified date in a human-readable format
-    pub fn formatted_date(&self) -> String {
-        match &self.last_modified {
-            Some(dt) => dt.format("%Y-%m-%d %H:%M:%S").to_string(),
-            None => "Unknown".to_string(),
-        }
-    }
+#[cfg(test)]
+mod tests {
+    // Tests would go here
 }
