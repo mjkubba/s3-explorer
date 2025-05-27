@@ -155,13 +155,13 @@ impl FolderContent {
     }
     
     /// Get the list of files
-    pub fn files(&self) -> &[FileEntry] {
+    pub fn files(&self) -> Vec<FileEntry> {
         debug!("Returning {} files", self.files.len());
-        &self.files
+        self.files.clone()
     }
     
     /// Load files from the specified path
-    fn load_files(&mut self, path: PathBuf) {
+    pub fn load_files(&mut self, path: PathBuf) {
         debug!("Loading files from: {}", path.display());
         self.files.clear();
         
@@ -179,7 +179,13 @@ impl FolderContent {
                         let size = if is_dir {
                             0 // Directories show as 0 size
                         } else {
-                            fs::metadata(&file_path).map(|m| m.len()).unwrap_or(0)
+                            match fs::metadata(&file_path) {
+                                Ok(metadata) => metadata.len(),
+                                Err(e) => {
+                                    debug!("Failed to get metadata for {}: {}", file_path.display(), e);
+                                    0
+                                }
+                            }
                         };
                         
                         let last_modified = fs::metadata(&file_path)
@@ -188,7 +194,10 @@ impl FolderContent {
                                 let dt: DateTime<Utc> = time.into();
                                 dt.format("%Y-%m-%d %H:%M:%S").to_string()
                             })
-                            .unwrap_or_else(|_| "Unknown".to_string());
+                            .unwrap_or_else(|e| {
+                                debug!("Failed to get modified time for {}: {}", file_path.display(), e);
+                                "Unknown".to_string()
+                            });
                             
                         self.files.push(FileEntry {
                             path: file_path,
@@ -210,11 +219,17 @@ impl FolderContent {
                 });
                 
                 debug!("Loaded {} files from {}", self.files.len(), path.display());
-                
-                debug!("Loaded {} files from {}", self.files.len(), path.display());
             },
             Err(e) => {
                 error!("Failed to read directory {}: {}", path.display(), e);
+                // Add a special entry to indicate the error
+                self.files.push(FileEntry {
+                    path: path.clone(),
+                    name: format!("Error: {}", e),
+                    is_directory: false,
+                    size: 0,
+                    last_modified: "".to_string(),
+                });
             }
         }
     }

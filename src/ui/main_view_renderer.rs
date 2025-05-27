@@ -152,7 +152,7 @@ impl MainViewRenderer {
             }
             
             // Display files directly here for debugging
-            let files = app_state.folder_content.files();
+            let files = app_state.folder_content.files().to_vec(); // Clone the files to avoid borrow issues
             debug!("Found {} files in folder", files.len());
             
             // Table header
@@ -171,7 +171,15 @@ impl MainViewRenderer {
             // Display files in a scrollable area
             egui::ScrollArea::vertical().id_source("local_folder_scroll").show(ui, |ui| {
                 if files.is_empty() {
-                    ui.label("No files in this folder");
+                    ui.label("No files in this folder or unable to access folder contents");
+                    
+                    // Add a refresh button
+                    if ui.button("Refresh").clicked() {
+                        if let Some(path) = &app_state.folder_content.current_folder {
+                            let path_clone = path.clone();
+                            app_state.folder_content.load_files(path_clone);
+                        }
+                    }
                 } else {
                     for file in files {
                         ui.horizontal(|ui| {
@@ -200,6 +208,14 @@ impl MainViewRenderer {
                     }
                 }
             });
+            
+            // Add a refresh button at the bottom
+            if ui.button("Refresh Folder").clicked() {
+                if let Some(path) = &app_state.folder_content.current_folder {
+                    let path_clone = path.clone();
+                    app_state.folder_content.load_files(path_clone);
+                }
+            }
         } else {
             ui.heading("No local folder selected");
             ui.label("Please select a folder from the list on the left.");

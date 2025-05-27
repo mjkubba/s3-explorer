@@ -120,48 +120,94 @@ impl FolderList {
         
         self.folder_dialog_open = true;
         
-        // Create a channel to receive the selected path
-        let (tx, rx) = mpsc::channel();
+        // Use PowerShell to open a folder selection dialog
+        debug!("Opening Windows folder selection dialog");
         
-        // Spawn a thread to show the dialog
-        thread::spawn(move || {
-            let result = native_dialog::FileDialog::new()
-                .set_location(&dirs::home_dir().unwrap_or_else(|| PathBuf::from("/")))
-                .show_open_single_dir();
-                
-            match result {
-                Ok(Some(path)) => {
-                    let _ = tx.send(Some(path));
-                },
-                Ok(None) => {
-                    let _ = tx.send(None);
-                },
-                Err(e) => {
-                    error!("Failed to show folder dialog: {}", e);
-                    let _ = tx.send(None);
+        // Create a PowerShell script that will open a folder browser dialog
+        let temp_dir = std::env::temp_dir();
+        let script_path = temp_dir.join("select_folder.ps1");
+        let result_path = temp_dir.join("selected_folder.txt");
+        
+        // Delete the result file if it exists
+        if result_path.exists() {
+            let _ = std::fs::remove_file(&result_path);
+        }
+        
+        // Create the PowerShell script
+        let script_content = format!(
+            r#"
+            Add-Type -AssemblyName System.Windows.Forms
+            $folderBrowser = New-Object System.Windows.Forms.FolderBrowserDialog
+            $folderBrowser.Description = "Select a folder to add to S3Sync"
+            $folderBrowser.ShowNewFolderButton = $true
+            
+            # Show the dialog
+            if ($folderBrowser.ShowDialog() -eq 'OK') {{
+                $selectedPath = $folderBrowser.SelectedPath
+                # Write the selected path to a file
+                $selectedPath | Out-File -FilePath "{}" -Encoding utf8
+            }}
+            "#,
+            result_path.to_string_lossy().replace("\\", "\\\\")
+        );
+        
+        // Write the script to a file
+        if let Err(e) = std::fs::write(&script_path, script_content) {
+            error!("Failed to write PowerShell script: {}", e);
+            self.folder_dialog_open = false;
+            return;
+        }
+        
+        // Execute the PowerShell script
+        let script_path_str = script_path.to_string_lossy().to_string();
+        let output = std::process::Command::new("powershell.exe")
+            .arg("-ExecutionPolicy")
+            .arg("Bypass")
+            .arg("-File")
+            .arg(&script_path_str)
+            .output();
+        
+        match output {
+            Ok(_) => {
+                // Check if the result file exists
+                if result_path.exists() {
+                    // Read the selected path from the file
+                    match std::fs::read_to_string(&result_path) {
+                        Ok(content) => {
+                            let selected_path = content.trim().trim_start_matches('\u{feff}');
+                            if !selected_path.is_empty() {
+                                let path = PathBuf::from(selected_path);
+                                if path.exists() && path.is_dir() {
+                                    debug!("Selected folder: {}", path.display());
+                                    self.add_folder(path);
+                                } else {
+                                    error!("Selected path is not a valid directory: {}", selected_path);
+                                }
+                            }
+                        },
+                        Err(e) => {
+                            error!("Failed to read selected path: {}", e);
+                        }
+                    }
+                    
+                    // Clean up the result file
+                    let _ = std::fs::remove_file(&result_path);
                 }
-            }
-        });
-        
-        // Check for the result in the next frame
-        let result = rx.try_recv();
-        
-        match result {
-            Ok(Some(path)) => {
-                self.add_folder(path);
-                self.folder_dialog_open = false;
             },
-            Ok(None) => {
-                self.folder_dialog_open = false;
-            },
-            Err(mpsc::TryRecvError::Empty) => {
-                // Still waiting for the dialog
-            },
-            Err(mpsc::TryRecvError::Disconnected) => {
-                error!("Folder dialog thread disconnected");
-                self.folder_dialog_open = false;
+            Err(e) => {
+                error!("Failed to execute PowerShell script: {}", e);
             }
         }
+        
+        // Clean up the script file
+        let _ = std::fs::remove_file(&script_path);
+        
+        self.folder_dialog_open = false;
+    }
+    
+    /// Render the folder selection dialog - no longer needed with native dialog
+    pub fn render_folder_dialog(&mut self, _ui: &mut egui::Ui) -> bool {
+        false
     }
     
     /// Add a folder to the list

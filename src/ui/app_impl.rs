@@ -114,7 +114,9 @@ impl epi::App for S3SyncApp {
         // Main content
         egui::CentralPanel::default().show(ctx, |ui| {
             match self.state.current_view {
-                CurrentView::Main => MainViewRenderer::render(&mut self.state, ui),
+                CurrentView::Main => {
+                    MainViewRenderer::render(&mut self.state, ui);
+                },
                 CurrentView::Filter => FilterViewRenderer::render(&mut self.state, ui),
                 CurrentView::Settings => SettingsViewRenderer::render(&mut self.state, ui),
             }

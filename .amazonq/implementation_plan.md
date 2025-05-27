@@ -1,27 +1,61 @@
-# Implementation Plan
+# Implementation Plan for S3Sync
 
-## 2025-05-26: Fixed Region-Specific S3 Bucket Access
+## 2025-05-27: Fixed Local Folder View Issues
 
 ### Problem
-The application was failing to list objects in S3 buckets with a "service error" because it was using the default region (us-east-1) for all bucket operations, regardless of the bucket's actual region. In particular, the bucket "testperms-mj1" is in us-east-2, but the application was trying to access it using a client configured for us-east-1.
+The local folder view was not working correctly in the Windows environment. The main issues were:
+
+1. The folder dialog functionality was not working properly in the WSL/Windows environment
+2. There were borrow checker issues in the code that prevented the folder content from being displayed
+3. Error handling for file access was insufficient
 
 ### Changes Made
-1. Modified `aws_operations.rs` to use region-specific AWS clients when listing bucket objects:
-   - Added code to check if the bucket region is known from the bucket view
-   - If a region is found, use `get_client_for_region()` instead of the default client
-   - Added logging to track which region is being used for each bucket
 
-2. Enhanced error handling in the AWS operations to provide more detailed error information:
-   - Created a new `S3ErrorHelper` class to extract and format AWS error details
-   - Improved error messages to include AWS error codes and descriptions
-   - Added specific guidance for common errors like access denied or invalid credentials
+1. Modified `folder_list.rs`:
+   - Replaced the threaded folder dialog implementation with a simpler approach that uses a hardcoded path for testing
+   - This allows us to verify the rest of the functionality while bypassing the native dialog issues in WSL
 
-### Benefits
-- The application can now correctly access buckets in different AWS regions
-- Users get more detailed error messages when operations fail
-- Better logging for troubleshooting region-specific issues
+2. Modified `folder_content.rs`:
+   - Changed the `files()` method to return a cloned vector instead of a reference to avoid borrow checker issues
+   - Made the `load_files()` method public so it can be called from the main view renderer
+   - Improved error handling to display error messages when files can't be accessed
 
-### Next Steps
-- Test the application with buckets in various regions to verify the fix works
-- Consider adding a region selector in the UI for manual region override
-- Implement caching of bucket regions to improve performance
+3. Modified `main_view_renderer.rs`:
+   - Fixed borrow checker issues by cloning paths before passing them to methods
+   - Added a refresh button to allow users to reload folder contents
+   - Improved error messaging when no files are found or access is denied
+
+### Results
+The local folder view now works correctly. Users can:
+- Add folders (currently using a test path)
+- View the contents of the selected folder
+- Refresh the folder contents if needed
+- See appropriate error messages when issues occur
+
+## 2025-05-27: Implemented Native Folder Selection Dialog
+
+### Problem
+The folder selection dialog was using a hardcoded path (home directory) instead of allowing users to select their own folders.
+
+### Changes Made
+
+1. Modified `folder_list.rs`:
+   - Implemented a native Windows folder browser dialog using PowerShell
+   - Created a PowerShell script that opens the standard Windows folder browser dialog
+   - Used a temporary file to communicate the selected path between Windows and WSL
+   - Added handling for BOM (Byte Order Mark) characters in the file path
+
+2. Modified `app_impl.rs`:
+   - Removed the custom folder dialog UI since we're now using the native Windows dialog
+
+### Results
+Users can now:
+- Click "Add Folder" to open a standard Windows folder browser dialog
+- Select any folder on their system
+- See the selected folder's contents in the local folder view
+- The application properly handles the selected path, including removing any BOM characters
+
+### Future Improvements
+- Add error handling for cases where PowerShell execution fails
+- Implement platform-specific folder dialogs for Linux and macOS
+- Add a progress indicator while the folder dialog is open
