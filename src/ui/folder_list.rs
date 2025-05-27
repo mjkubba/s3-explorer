@@ -34,8 +34,6 @@ pub struct FolderList {
 impl FolderList {
     /// Render the folder list UI
     pub fn ui(&mut self, ui: &mut egui::Ui) {
-        ui.heading("Local Folders");
-        
         // Folder list
         egui::ScrollArea::vertical().show(ui, |ui| {
             if self.folders.is_empty() {
@@ -95,25 +93,10 @@ impl FolderList {
                 }
             }
         });
-        
-        // Actions
-        ui.separator();
-        
-        ui.horizontal(|ui| {
-            if ui.button("Add Folder").clicked() {
-                self.show_folder_dialog();
-            }
-            
-            if ui.button("Remove").clicked() {
-                if let Some(index) = self.selected_index {
-                    self.remove_folder(index);
-                }
-            }
-        });
     }
     
     /// Show a folder selection dialog
-    fn show_folder_dialog(&mut self) {
+    pub fn show_folder_dialog(&mut self) {
         if self.folder_dialog_open {
             return;
         }

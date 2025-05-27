@@ -15,64 +15,104 @@ impl MainViewRenderer {
         ui.horizontal(|ui| {
             Self::render_left_panel(app_state, ui);
             ui.separator();
-            Self::render_middle_panel(app_state, ui);
-            ui.separator();
             Self::render_right_panel(app_state, ui);
         });
     }
 
-    /// Render the left panel with folder list
+    /// Render the left panel with folder list and bucket view
     fn render_left_panel(app_state: &mut AppState, ui: &mut egui::Ui) {
         ui.vertical(|ui| {
             ui.set_width(250.0);
-            app_state.folder_list.ui(ui);
             
-            ui.separator();
+            // Local folders section
+            ui.group(|ui| {
+                ui.heading("Local Folders");
+                app_state.folder_list.ui(ui);
+                
+                ui.separator();
+                
+                ui.horizontal(|ui| {
+                    if ui.button("Add Folder").clicked() {
+                        app_state.folder_list.show_folder_dialog();
+                    }
+                    
+                    if ui.button("Remove").clicked() {
+                        app_state.folder_list.remove_selected();
+                    }
+                });
+            });
             
-            if ui.button("Connect to AWS").clicked() {
-                AwsOperations::connect_to_aws(app_state);
-            }
+            ui.add_space(10.0);
             
-            if ui.button("Remove Selected").clicked() {
-                app_state.folder_list.remove_selected();
-            }
-        });
-    }
-
-    /// Render the middle panel with bucket view
-    fn render_middle_panel(app_state: &mut AppState, ui: &mut egui::Ui) {
-        ui.vertical(|ui| {
-            ui.set_width(250.0);
-            if app_state.bucket_view.ui(ui) {
-                // Bucket selection changed, load objects
-                if let Some(bucket) = app_state.bucket_view.selected_bucket() {
-                    AwsOperations::load_bucket_objects(app_state, &bucket);
+            // S3 buckets section
+            ui.group(|ui| {
+                ui.heading("S3 Buckets");
+                if app_state.bucket_view.ui(ui) {
+                    // Bucket selection changed, load objects
+                    if let Some(bucket) = app_state.bucket_view.selected_bucket() {
+                        AwsOperations::load_bucket_objects(app_state, &bucket);
+                    }
                 }
-            }
+                
+                ui.separator();
+                
+                if ui.button("Connect to AWS").clicked() {
+                    AwsOperations::connect_to_aws(app_state);
+                }
+            });
         });
     }
 
     /// Render the right panel with content views
     fn render_right_panel(app_state: &mut AppState, ui: &mut egui::Ui) {
         ui.vertical(|ui| {
-            Self::render_bucket_content(app_state, ui);
+            ui.set_min_width(600.0);
             
-            // Add space for future buttons/controls
-            ui.add_space(20.0);
+            // Create a top section for controls
+            ui.horizontal(|ui| {
+                if let Some(bucket) = app_state.bucket_view.selected_bucket() {
+                    ui.heading(&format!("Bucket: {}", bucket));
+                    
+                    ui.with_layout(egui::Layout::right_to_left(), |ui| {
+                        if ui.button("Upload").clicked() {
+                            // TODO: Implement upload functionality
+                        }
+                        
+                        if ui.button("Download").clicked() {
+                            // TODO: Implement download functionality
+                        }
+                        
+                        if ui.button("Refresh").clicked() {
+                            if let Some(bucket) = app_state.bucket_view.selected_bucket() {
+                                AwsOperations::load_bucket_objects(app_state, &bucket);
+                            }
+                        }
+                    });
+                } else {
+                    ui.heading("No S3 bucket selected");
+                }
+            });
+            
             ui.separator();
-            ui.add_space(10.0);
             
+            // Split the view into two panels
+            egui::TopBottomPanel::top("bucket_content_panel")
+                .resizable(true)
+                .default_height(300.0)
+                .show_inside(ui, |ui| {
+                    Self::render_bucket_content(app_state, ui);
+                });
+            
+            // Local folder content in the bottom panel
+            ui.separator();
             Self::render_folder_content(app_state, ui);
         });
     }
 
     /// Render the bucket content section
     fn render_bucket_content(app_state: &mut AppState, ui: &mut egui::Ui) {
-        // First section: S3 bucket contents (if a bucket is selected)
-        if let Some(bucket) = app_state.bucket_view.selected_bucket() {
-            // Display bucket objects in the content area
-            ui.heading(&format!("Bucket: {}", bucket));
-            
+        // S3 bucket contents (if a bucket is selected)
+        if let Some(_) = app_state.bucket_view.selected_bucket() {
             // Create a table header for bucket contents
             ui.horizontal(|ui| {
                 ui.style_mut().spacing.item_spacing.x = 10.0;
@@ -89,7 +129,6 @@ impl MainViewRenderer {
             // Display bucket objects in a scrollable area
             egui::ScrollArea::vertical()
                 .id_source("bucket_contents_scroll")
-                .max_height(200.0) // Limit height to make room for local folder view
                 .show(ui, |ui| {
                     let objects = app_state.bucket_view.objects();
                     
@@ -133,18 +172,35 @@ impl MainViewRenderer {
                     }
                 });
         } else {
-            ui.heading("No S3 bucket selected");
-            ui.label("Please select a bucket from the list on the left.");
+            ui.centered_and_justified(|ui| {
+                ui.label("Please select a bucket from the list on the left");
+            });
         }
     }
 
     /// Render the folder content section
     fn render_folder_content(app_state: &mut AppState, ui: &mut egui::Ui) {
-        // Second section: Local folder contents (if a folder is selected)
+        // Local folder contents (if a folder is selected)
+        ui.horizontal(|ui| {
+            if let Some(folder_path) = app_state.folder_list.selected_folder() {
+                ui.heading(&format!("Local Folder: {}", folder_path.display()));
+                
+                ui.with_layout(egui::Layout::right_to_left(), |ui| {
+                    if ui.button("Refresh Folder").clicked() {
+                        if let Some(path) = &app_state.folder_content.current_folder {
+                            let path_clone = path.clone();
+                            app_state.folder_content.load_files(path_clone);
+                        }
+                    }
+                });
+            } else {
+                ui.heading("No local folder selected");
+            }
+        });
+        
+        ui.separator();
+        
         if let Some(folder_path) = app_state.folder_list.selected_folder() {
-            // Display folder contents in a columnar format
-            ui.heading(&format!("Local Folder: {}", folder_path.display()));
-            
             // Set the folder in the folder_content component and ensure files are loaded
             if app_state.folder_content.current_folder.as_ref() != Some(folder_path) {
                 debug!("Loading folder contents for: {}", folder_path.display());
@@ -208,17 +264,10 @@ impl MainViewRenderer {
                     }
                 }
             });
-            
-            // Add a refresh button at the bottom
-            if ui.button("Refresh Folder").clicked() {
-                if let Some(path) = &app_state.folder_content.current_folder {
-                    let path_clone = path.clone();
-                    app_state.folder_content.load_files(path_clone);
-                }
-            }
         } else {
-            ui.heading("No local folder selected");
-            ui.label("Please select a folder from the list on the left.");
+            ui.centered_and_justified(|ui| {
+                ui.label("Please select a folder from the list on the left");
+            });
         }
     }
 }

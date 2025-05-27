@@ -78,8 +78,6 @@ impl BucketView {
     pub fn ui(&mut self, ui: &mut egui::Ui) -> bool {
         let mut selection_changed = false;
         
-        ui.heading("S3 Buckets");
-        
         // Filter input
         ui.horizontal(|ui| {
             ui.label("Filter:");
