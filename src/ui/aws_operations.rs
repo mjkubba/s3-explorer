@@ -1,7 +1,6 @@
 use log::{error, debug};
 use std::sync::Arc;
 use std::path::{Path, PathBuf};
-use aws_sdk_s3::error::ProvideErrorMetadata;
 
 use crate::aws::transfer::TransferManager;
 use crate::ui::app_state::{AppState, StatusMessage};
@@ -112,8 +111,19 @@ impl AwsOperations {
                 },
                 Err(e) => {
                     error!("Failed to get AWS client for region {}: {}", region, e);
-                    let _ = tx.send(StatusMessage::Error(format!("Failed to get AWS client for region {}: {}", region, e)));
-                    return;
+                    
+                    // Try with us-east-2 as a fallback
+                    match auth.get_client_for_region("us-east-2").await {
+                        Ok(client) => {
+                            debug!("Using fallback us-east-2 client for bucket {}", bucket_name);
+                            client
+                        },
+                        Err(fallback_err) => {
+                            error!("Failed to get fallback AWS client: {}", fallback_err);
+                            let _ = tx.send(StatusMessage::Error(format!("Failed to get AWS client: {}", e)));
+                            return;
+                        }
+                    }
                 }
             };
             
@@ -270,17 +280,66 @@ impl AwsOperations {
         let folder_path_clone = folder_path.clone();
         let files_clone = files.clone();
         
+        // Get the bucket region from the bucket view
+        let bucket_region = app_state.bucket_view.get_bucket_region(&bucket).cloned();
+        
         app_state.set_status_info(&format!("Uploading files to bucket {}...", bucket));
         
         // Spawn an async task to handle the upload
         app_state.rt.spawn(async move {
             // Get the AWS client
             let mut auth = auth_clone.lock().await;
-            let client = match auth.get_client().await {
-                Ok(client) => client,
+            
+            // First, try to get the region if we don't have it yet
+            let region = if let Some(region) = bucket_region {
+                debug!("Using cached region {} for bucket {}", region, bucket_name);
+                region
+            } else {
+                // Try to get the default client to query the bucket location
+                let default_client = match auth.get_client().await {
+                    Ok(client) => client,
+                    Err(e) => {
+                        error!("Failed to get default AWS client: {}", e);
+                        let _ = tx.send(StatusMessage::Error(format!("Failed to get AWS client: {}", e)));
+                        return;
+                    }
+                };
+                
+                // Try to get the bucket location
+                match Self::get_bucket_location(&default_client, &bucket_name).await {
+                    Ok(region) => {
+                        debug!("Detected region {} for bucket {}", region, bucket_name);
+                        region
+                    },
+                    Err(e) => {
+                        error!("Failed to get region for bucket {}: {}", bucket_name, e);
+                        // Try us-east-1 as default
+                        "us-east-1".to_string()
+                    }
+                }
+            };
+            
+            // Now get a client for the specific region
+            let client = match auth.get_client_for_region(&region).await {
+                Ok(client) => {
+                    debug!("Using region-specific client for bucket {} in region {}", bucket_name, region);
+                    client
+                },
                 Err(e) => {
-                    let _ = tx.send(StatusMessage::Error(format!("Failed to get AWS client: {}", e)));
-                    return;
+                    error!("Failed to get AWS client for region {}: {}", region, e);
+                    
+                    // Try with us-east-2 as a fallback
+                    match auth.get_client_for_region("us-east-2").await {
+                        Ok(client) => {
+                            debug!("Using fallback us-east-2 client for bucket {}", bucket_name);
+                            client
+                        },
+                        Err(fallback_err) => {
+                            error!("Failed to get fallback AWS client: {}", fallback_err);
+                            let _ = tx.send(StatusMessage::Error(format!("Failed to get AWS client: {}", e)));
+                            return;
+                        }
+                    }
                 }
             };
             
@@ -314,10 +373,12 @@ impl AwsOperations {
                 match transfer_manager.upload_file(&file_path, &bucket_name, &s3_key, None).await {
                     Ok(_) => {
                         success_count += 1;
+                        debug!("Successfully uploaded {} to s3://{}/{}", file_path.display(), bucket_name, s3_key);
                     },
                     Err(e) => {
                         error_count += 1;
                         error!("Failed to upload {}: {}", file_path.display(), e);
+                        error!("Error details: {:#?}", e.to_string());
                     }
                 }
             }
@@ -382,17 +443,66 @@ impl AwsOperations {
         let bucket_name = bucket.clone();
         let folder_path_clone = folder_path.clone();
         
+        // Get the bucket region from the bucket view
+        let bucket_region = app_state.bucket_view.get_bucket_region(&bucket).cloned();
+        
         app_state.set_status_info(&format!("Downloading files from bucket {}...", bucket));
         
         // Spawn an async task to handle the download
         app_state.rt.spawn(async move {
             // Get the AWS client
             let mut auth = auth_clone.lock().await;
-            let client = match auth.get_client().await {
-                Ok(client) => client,
+            
+            // First, try to get the region if we don't have it yet
+            let region = if let Some(region) = bucket_region {
+                debug!("Using cached region {} for bucket {}", region, bucket_name);
+                region
+            } else {
+                // Try to get the default client to query the bucket location
+                let default_client = match auth.get_client().await {
+                    Ok(client) => client,
+                    Err(e) => {
+                        error!("Failed to get default AWS client: {}", e);
+                        let _ = tx.send(StatusMessage::Error(format!("Failed to get AWS client: {}", e)));
+                        return;
+                    }
+                };
+                
+                // Try to get the bucket location
+                match Self::get_bucket_location(&default_client, &bucket_name).await {
+                    Ok(region) => {
+                        debug!("Detected region {} for bucket {}", region, bucket_name);
+                        region
+                    },
+                    Err(e) => {
+                        error!("Failed to get region for bucket {}: {}", bucket_name, e);
+                        // Try us-east-1 as default
+                        "us-east-1".to_string()
+                    }
+                }
+            };
+            
+            // Now get a client for the specific region
+            let client = match auth.get_client_for_region(&region).await {
+                Ok(client) => {
+                    debug!("Using region-specific client for bucket {} in region {}", bucket_name, region);
+                    client
+                },
                 Err(e) => {
-                    let _ = tx.send(StatusMessage::Error(format!("Failed to get AWS client: {}", e)));
-                    return;
+                    error!("Failed to get AWS client for region {}: {}", region, e);
+                    
+                    // Try with us-east-2 as a fallback
+                    match auth.get_client_for_region("us-east-2").await {
+                        Ok(client) => {
+                            debug!("Using fallback us-east-2 client for bucket {}", bucket_name);
+                            client
+                        },
+                        Err(fallback_err) => {
+                            error!("Failed to get fallback AWS client: {}", fallback_err);
+                            let _ = tx.send(StatusMessage::Error(format!("Failed to get AWS client: {}", e)));
+                            return;
+                        }
+                    }
                 }
             };
             
@@ -428,10 +538,12 @@ impl AwsOperations {
                 match transfer_manager.download_file(&bucket_name, &object.key, &local_path, None).await {
                     Ok(_) => {
                         success_count += 1;
+                        debug!("Successfully downloaded s3://{}/{} to {}", bucket_name, object.key, local_path.display());
                     },
                     Err(e) => {
                         error_count += 1;
                         error!("Failed to download {}: {}", object.key, e);
+                        error!("Error details: {:#?}", e.to_string());
                     }
                 }
             }
