@@ -75,11 +75,11 @@ impl MainViewRenderer {
                     
                     ui.with_layout(egui::Layout::right_to_left(), |ui| {
                         if ui.button("Upload").clicked() {
-                            // TODO: Implement upload functionality
+                            AwsOperations::upload_selected(app_state);
                         }
                         
                         if ui.button("Download").clicked() {
-                            // TODO: Implement download functionality
+                            AwsOperations::download_selected(app_state);
                         }
                         
                         if ui.button("Refresh").clicked() {

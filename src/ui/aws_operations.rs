@@ -1,5 +1,6 @@
 use log::{error, debug};
 use std::sync::Arc;
+use std::path::{Path, PathBuf};
 use aws_sdk_s3::error::ProvideErrorMetadata;
 
 use crate::aws::transfer::TransferManager;
@@ -234,14 +235,221 @@ impl AwsOperations {
     
     /// Upload selected files to S3
     pub fn upload_selected(app_state: &mut AppState) {
-        // Implementation will go here
-        app_state.set_status_info("Upload functionality not yet implemented");
+        // Check if we have a selected bucket and folder
+        let bucket = match app_state.bucket_view.selected_bucket() {
+            Some(bucket) => bucket.clone(),
+            None => {
+                app_state.set_status_error("No S3 bucket selected for upload");
+                return;
+            }
+        };
+        
+        // Get the selected folder path
+        let folder_path = match app_state.folder_list.selected_folder() {
+            Some(path) => path.clone(),
+            None => {
+                app_state.set_status_error("No local folder selected for upload");
+                return;
+            }
+        };
+        
+        // Get the selected files
+        let files = app_state.folder_content.files();
+        if files.is_empty() {
+            app_state.set_status_error("No files available to upload");
+            return;
+        }
+        
+        // For now, we'll upload all files in the folder
+        // In a future enhancement, we could add file selection functionality
+        
+        // Clone necessary data for the async task
+        let auth_clone = app_state.aws_auth.clone();
+        let tx = app_state.status_tx.clone();
+        let bucket_name = bucket.clone();
+        let folder_path_clone = folder_path.clone();
+        let files_clone = files.clone();
+        
+        app_state.set_status_info(&format!("Uploading files to bucket {}...", bucket));
+        
+        // Spawn an async task to handle the upload
+        app_state.rt.spawn(async move {
+            // Get the AWS client
+            let mut auth = auth_clone.lock().await;
+            let client = match auth.get_client().await {
+                Ok(client) => client,
+                Err(e) => {
+                    let _ = tx.send(StatusMessage::Error(format!("Failed to get AWS client: {}", e)));
+                    return;
+                }
+            };
+            
+            // Create a transfer manager
+            let transfer_manager = TransferManager::new(client);
+            
+            // Track upload statistics
+            let mut success_count = 0;
+            let mut error_count = 0;
+            
+            // Process each file
+            for file in files_clone {
+                // Skip directories
+                if file.is_directory {
+                    continue;
+                }
+                
+                // Calculate the S3 key by removing the folder path prefix
+                let file_path = PathBuf::from(&folder_path_clone).join(&file.name);
+                let rel_path = match file_path.strip_prefix(&folder_path_clone) {
+                    Ok(rel) => rel,
+                    Err(_) => {
+                        // If we can't determine the relative path, use the file name
+                        Path::new(&file.name)
+                    }
+                };
+                
+                let s3_key = rel_path.to_string_lossy().replace('\\', "/");
+                
+                // Upload the file
+                match transfer_manager.upload_file(&file_path, &bucket_name, &s3_key, None).await {
+                    Ok(_) => {
+                        success_count += 1;
+                    },
+                    Err(e) => {
+                        error_count += 1;
+                        error!("Failed to upload {}: {}", file_path.display(), e);
+                    }
+                }
+            }
+            
+            // Send status message
+            if error_count == 0 {
+                let _ = tx.send(StatusMessage::Info(
+                    format!("Successfully uploaded {} files to bucket {}", success_count, bucket_name)
+                ));
+            } else {
+                let _ = tx.send(StatusMessage::Error(
+                    format!("Upload completed with errors: {} succeeded, {} failed", success_count, error_count)
+                ));
+            }
+            
+            // Refresh the bucket objects
+            let _ = tx.send(StatusMessage::Info(format!("Refreshing bucket contents...")));
+            match transfer_manager.list_objects(&bucket_name).await {
+                Ok(objects) => {
+                    let _ = tx.send(StatusMessage::ObjectList(objects));
+                },
+                Err(e) => {
+                    error!("Failed to refresh bucket objects: {}", e);
+                }
+            }
+        });
     }
     
     /// Download selected objects from S3
     pub fn download_selected(app_state: &mut AppState) {
-        // Implementation will go here
-        app_state.set_status_info("Download functionality not yet implemented");
+        // Check if we have a selected bucket
+        let bucket = match app_state.bucket_view.selected_bucket() {
+            Some(bucket) => bucket.clone(),
+            None => {
+                app_state.set_status_error("No S3 bucket selected for download");
+                return;
+            }
+        };
+        
+        // Get the selected folder path for download destination
+        let folder_path = match app_state.folder_list.selected_folder() {
+            Some(path) => path.clone(),
+            None => {
+                app_state.set_status_error("No local folder selected as download destination");
+                return;
+            }
+        };
+        
+        // Get the selected objects
+        let objects = app_state.bucket_view.objects().to_vec();
+        if objects.is_empty() {
+            app_state.set_status_error("No objects available to download");
+            return;
+        }
+        
+        // For now, we'll download all objects in the bucket
+        // In a future enhancement, we could add object selection functionality
+        
+        // Clone necessary data for the async task
+        let auth_clone = app_state.aws_auth.clone();
+        let tx = app_state.status_tx.clone();
+        let bucket_name = bucket.clone();
+        let folder_path_clone = folder_path.clone();
+        
+        app_state.set_status_info(&format!("Downloading files from bucket {}...", bucket));
+        
+        // Spawn an async task to handle the download
+        app_state.rt.spawn(async move {
+            // Get the AWS client
+            let mut auth = auth_clone.lock().await;
+            let client = match auth.get_client().await {
+                Ok(client) => client,
+                Err(e) => {
+                    let _ = tx.send(StatusMessage::Error(format!("Failed to get AWS client: {}", e)));
+                    return;
+                }
+            };
+            
+            // Create a transfer manager
+            let transfer_manager = TransferManager::new(client);
+            
+            // Track download statistics
+            let mut success_count = 0;
+            let mut error_count = 0;
+            
+            // Process each object
+            for object in objects {
+                // Skip directories
+                if object.is_directory {
+                    continue;
+                }
+                
+                // Calculate the local file path
+                let local_path = folder_path_clone.join(object.key.replace('/', std::path::MAIN_SEPARATOR_STR));
+                
+                // Create parent directories if they don't exist
+                if let Some(parent) = local_path.parent() {
+                    if !parent.exists() {
+                        if let Err(e) = std::fs::create_dir_all(parent) {
+                            error!("Failed to create directory {}: {}", parent.display(), e);
+                            error_count += 1;
+                            continue;
+                        }
+                    }
+                }
+                
+                // Download the file
+                match transfer_manager.download_file(&bucket_name, &object.key, &local_path, None).await {
+                    Ok(_) => {
+                        success_count += 1;
+                    },
+                    Err(e) => {
+                        error_count += 1;
+                        error!("Failed to download {}: {}", object.key, e);
+                    }
+                }
+            }
+            
+            // Send status message
+            if error_count == 0 {
+                let _ = tx.send(StatusMessage::Info(
+                    format!("Successfully downloaded {} files from bucket {}", success_count, bucket_name)
+                ));
+            } else {
+                let _ = tx.send(StatusMessage::Error(
+                    format!("Download completed with errors: {} succeeded, {} failed", success_count, error_count)
+                ));
+            }
+            
+            // Refresh the local folder contents
+            let _ = tx.send(StatusMessage::Info(format!("Refreshing local folder contents...")));
+        });
     }
     
     /// Sync selected folders with S3
