@@ -11,6 +11,7 @@ use aws_sdk_s3::config::Credentials;
 use aws_sdk_s3::error::ProvideErrorMetadata;
 
 use crate::config::credentials::CredentialManager;
+use crate::aws::s3::S3ErrorHelper;
 
 /// AWS authentication manager
 #[derive(Clone)]
@@ -100,8 +101,11 @@ impl AwsAuth {
                 Ok(())
             },
             Err(e) => {
-                error!("AWS credentials test failed: {}", e);
-                Err(anyhow!("AWS credentials test failed: {}", e))
+                // Use our helper to extract detailed error information
+                let detailed_error = S3ErrorHelper::extract_error_details(&e);
+                
+                error!("AWS credentials test failed: {}", detailed_error);
+                Err(anyhow!("AWS credentials test failed: {}", detailed_error))
             }
         }
     }
@@ -141,6 +145,7 @@ impl AwsAuth {
     
     /// Get an AWS S3 client for a specific region
     pub async fn get_client_for_region(&mut self, region: &str) -> Result<Arc<Client>> {
+        // Check if we already have a client for this region
         if let Some(client) = self.region_clients.get(region) {
             return Ok(client.clone());
         }

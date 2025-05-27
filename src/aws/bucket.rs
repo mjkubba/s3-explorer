@@ -62,47 +62,47 @@ impl BucketManager {
     }
     
     /// List objects in a bucket with optional prefix
-    pub async fn list_objects(&mut self, bucket: &str, prefix: Option<&str>) -> Result<Vec<S3ObjectInfo>> {
-        let client = self.auth.get_client().await?;
+    // pub async fn list_objects(&mut self, bucket: &str, prefix: Option<&str>) -> Result<Vec<S3ObjectInfo>> {
+    //     let client = self.auth.get_client().await?;
         
-        let mut request = client.list_objects_v2().bucket(bucket);
+    //     let mut request = client.list_objects_v2().bucket(bucket);
         
-        if let Some(prefix) = prefix {
-            request = request.prefix(prefix);
-        }
+    //     if let Some(prefix) = prefix {
+    //         request = request.prefix(prefix);
+    //     }
         
-        match request.send().await {
-            Ok(resp) => {
-                let objects = resp.contents().unwrap_or_default();
-                let object_infos: Vec<S3ObjectInfo> = objects
-                    .iter()
-                    .map(|obj| {
-                        // Convert AWS DateTime to chrono DateTime
-                        let aws_dt = obj.last_modified();
-                        let chrono_dt = aws_dt.map(|dt| {
-                            let secs = dt.secs();
-                            let nanos = dt.subsec_nanos();
-                            chrono::DateTime::<chrono::Utc>::from_timestamp(secs as i64, nanos).unwrap_or_default()
-                        });
+    //     match request.send().await {
+    //         Ok(resp) => {
+    //             let objects = resp.contents().unwrap_or_default();
+    //             let object_infos: Vec<S3ObjectInfo> = objects
+    //                 .iter()
+    //                 .map(|obj| {
+    //                     // Convert AWS DateTime to chrono DateTime
+    //                     let aws_dt = obj.last_modified();
+    //                     let chrono_dt = aws_dt.map(|dt| {
+    //                         let secs = dt.secs();
+    //                         let nanos = dt.subsec_nanos();
+    //                         chrono::DateTime::<chrono::Utc>::from_timestamp(secs as i64, nanos).unwrap_or_default()
+    //                     });
                         
-                        S3ObjectInfo {
-                            key: obj.key().unwrap_or_default().to_string(),
-                            size: obj.size(),
-                            last_modified: chrono_dt,
-                            etag: obj.e_tag().map(String::from),
-                        }
-                    })
-                    .collect();
+    //                     S3ObjectInfo {
+    //                         key: obj.key().unwrap_or_default().to_string(),
+    //                         size: obj.size(),
+    //                         last_modified: chrono_dt,
+    //                         etag: obj.e_tag().map(String::from),
+    //                     }
+    //                 })
+    //                 .collect();
                     
-                info!("Listed {} objects in bucket {}", object_infos.len(), bucket);
-                Ok(object_infos)
-            },
-            Err(err) => {
-                error!("Failed to list objects in bucket {}: {}", bucket, err);
-                Err(anyhow!("Failed to list objects in bucket {}: {}", bucket, err))
-            }
-        }
-    }
+    //             info!("Listed {} objects in bucket {}", object_infos.len(), bucket);
+    //             Ok(object_infos)
+    //         },
+    //         Err(err) => {
+    //             error!("Failed to list objects in bucket {}: {}", bucket, err);
+    //             Err(anyhow!("Failed to list objects in bucket {}: {}", bucket, err))
+    //         }
+    //     }
+    // }
     
     /// Delete an object from a bucket
     pub async fn delete_object(&mut self, bucket: &str, key: &str) -> Result<()> {

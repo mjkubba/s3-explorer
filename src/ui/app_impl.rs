@@ -1,6 +1,6 @@
 use eframe::egui;
 use eframe::epi;
-use log::debug;
+// use log::debug;
 use std::sync::Arc;
 use std::sync::mpsc;
 use tokio::runtime::Handle;
@@ -9,7 +9,7 @@ use tokio::sync::Mutex as TokioMutex;
 use crate::aws::auth::AwsAuth;
 use crate::config::credentials::CredentialManager;
 use crate::ui::app_state::{AppState, CurrentView, StatusMessage};
-use crate::ui::aws_operations::AwsOperations;
+// use crate::ui::aws_operations::AwsOperations;
 use crate::ui::bucket_view::BucketView;
 use crate::ui::filter_view_renderer::FilterViewRenderer;
 use crate::ui::folder_content::FolderContent;

@@ -1,3 +1,4 @@
+use chrono::{DateTime, Utc, TimeZone};
 use eframe::egui;
 use std::sync::{Arc};
 use log::{error, debug};
@@ -288,7 +289,7 @@ impl BucketView {
         }
     }
     
-    /// Load objects from the selected bucket
+    // Load objects from the selected bucket
     pub async fn load_objects(&mut self, aws_auth: Arc<TokioMutex<AwsAuth>>, bucket: &str) -> Result<Vec<S3Object>, String> {
         debug!("Loading objects from bucket: {}", bucket);
         self.loading = true;
@@ -350,16 +351,34 @@ impl BucketView {
                 for obj in resp.contents().unwrap_or_default() {
                     let key = obj.key().unwrap_or_default();
                     let size = obj.size() as u64;
+                    println!("{:?}",obj.last_modified());
+                    // Get the last modified timestamp
                     let last_modified = obj.last_modified()
                         .map(|dt| {
-                            // The AWS DateTime debug format is: DateTime{seconds:1747860201,subseconds_nanos:0}
-                            let _dt_str = format!("{:?}", dt);
+                            // Format the date in a human-readable format
+                            // Extract the timestamp from the debug representation
+                            let dt_str = format!("{:?}", dt);
+                            println!("{:?}",dt_str);
                             
-                            // Just return a fixed format for now
-                            // In a future update, we can implement proper parsing
-                            "2023-05-22 14:30:15".to_string()
+                            // Parse the seconds from the debug format: DateTime{seconds:1747860201,subseconds_nanos:0}
+                            if let Some(start) = dt_str.find("seconds:") {
+                                let seconds_str = &dt_str[start + 8..]; // Skip "seconds:"
+                                if let Some(end) = seconds_str.find(',') {
+                                    // Extract just the seconds value
+                                    if let Ok(seconds) = seconds_str[..end].parse::<i64>() {
+                                        // Convert Unix timestamp to DateTime and format
+                                        if let Some(datetime) = Utc.timestamp_opt(seconds, 0).single() {
+                                            return datetime.format("%Y-%m-%d %H:%M:%S").to_string();
+                                        }
+                                    }
+                                }
+                            }
+                            
+                            // Fallback if parsing fails
+                            dt_str
                         })
                         .unwrap_or_else(|| "Unknown".to_string());
+                        
                     
                     // Check if this is a "directory" (prefix)
                     if key.ends_with('/') {
