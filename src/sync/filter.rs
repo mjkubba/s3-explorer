@@ -106,6 +106,7 @@ impl FileFilter {
     }
     
     /// Check if a file should be included
+    #[allow(dead_code)] // Will be used in future implementations
     pub fn should_include(&self, path: &Path, size: u64) -> bool {
         // Check size constraints
         if let Some(min_size) = self.min_size {
@@ -149,26 +150,32 @@ impl FileFilter {
     }
     
     /// Get the include patterns
+    #[allow(dead_code)] // Will be used in future implementations
     pub fn include_patterns(&self) -> &[Pattern] {
         &self.include_patterns
     }
     
     /// Get the exclude patterns
+    #[allow(dead_code)] // Will be used in future implementations
+    #[allow(dead_code)] // Will be used in future implementations
     pub fn exclude_patterns(&self) -> &[Pattern] {
         &self.exclude_patterns
     }
     
     /// Get the minimum size
+    #[allow(dead_code)] // Will be used in future implementations
     pub fn min_size(&self) -> Option<u64> {
         self.min_size
     }
     
     /// Get the maximum size
+    #[allow(dead_code)] // Will be used in future implementations
     pub fn max_size(&self) -> Option<u64> {
         self.max_size
     }
     
     /// Convert to a string representation
+    #[allow(dead_code)] // Will be used in future implementations
     pub fn to_string(&self) -> String {
         let mut result = String::new();
         

@@ -16,6 +16,7 @@ pub struct SyncResult {
 
 /// Action to take for a file
 #[derive(Debug, PartialEq)]
+#[allow(dead_code)] // Will be used in future implementations
 enum FileAction {
     Upload,
     Download,
@@ -25,6 +26,7 @@ enum FileAction {
 
 /// Difference between local and remote files
 #[derive(Debug)]
+#[allow(dead_code)] // Will be used in future implementations
 struct FileDiff {
     action: FileAction,
     local_path: Option<PathBuf>,
@@ -34,12 +36,14 @@ struct FileDiff {
 }
 
 /// Engine for syncing files between local and S3
+#[allow(dead_code)] // Will be used in future implementations
 pub struct SyncEngine {
     transfer_manager: TransferManager,
 }
 
 impl SyncEngine {
     /// Create a new sync engine
+    #[allow(dead_code)] // Will be used in future implementations
     pub fn new(transfer_manager: TransferManager) -> Self {
         Self {
             transfer_manager,
@@ -47,6 +51,7 @@ impl SyncEngine {
     }
     
     /// Sync a folder with an S3 bucket
+    #[allow(dead_code)] // Will be used in future implementations
     pub async fn sync_folder(
         &mut self,
         folder_path: &Path,
@@ -122,6 +127,7 @@ impl SyncEngine {
     }
     
     /// Scan a local folder for files
+    #[allow(dead_code)] // Will be used in future implementations
     fn scan_local_folder(&self, folder: &Path) -> Result<HashMap<String, (PathBuf, u64)>> {
         let mut files = HashMap::new();
         
@@ -147,6 +153,7 @@ impl SyncEngine {
     }
     
     /// List files in an S3 bucket
+    #[allow(dead_code)] // Will be used in future implementations
     async fn list_remote_files(&self, _bucket: &str) -> Result<HashMap<String, u64>> {
         let files = HashMap::new();
         
@@ -157,6 +164,7 @@ impl SyncEngine {
     }
     
     /// Compare local and remote files to determine actions
+    #[allow(dead_code)] // Will be used in future implementations
     fn compare_files(
         &self,
         local_files: &HashMap<String, (PathBuf, u64)>,

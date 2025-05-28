@@ -8,6 +8,7 @@ use tokio::time;
 use crate::ui::folder_list::SyncFolder;
 
 /// Scheduler for periodic sync operations
+#[allow(dead_code)] // Will be used in future implementations
 pub struct SyncScheduler {
     interval_minutes: u32,
     running: Arc<Mutex<bool>>,
@@ -15,6 +16,7 @@ pub struct SyncScheduler {
 }
 
 /// Sync task message
+#[allow(dead_code)] // Will be used in future implementations
 pub enum SyncTask {
     /// Sync a specific folder
     SyncFolder(usize),
@@ -26,6 +28,7 @@ pub enum SyncTask {
 
 impl SyncScheduler {
     /// Create a new sync scheduler
+    #[allow(dead_code)] // Will be used in future implementations
     pub fn new(interval_minutes: u32) -> Self {
         Self {
             interval_minutes,
@@ -35,17 +38,20 @@ impl SyncScheduler {
     }
     
     /// Set the sync interval in minutes (0 = manual only)
+    #[allow(dead_code)] // Will be used in future implementations
     pub fn set_interval(&mut self, minutes: u32) {
         self.interval_minutes = minutes;
     }
     
     /// Update the folders to sync
+    #[allow(dead_code)] // Will be used in future implementations
     pub fn update_folders(&mut self, folders: Vec<SyncFolder>) {
         let mut folders_lock = self.folders.lock().unwrap();
         *folders_lock = folders;
     }
     
     /// Start the scheduler
+    #[allow(dead_code)] // Will be used in future implementations
     pub fn start(&self, tx: mpsc::Sender<SyncTask>) -> Result<()> {
         if self.interval_minutes == 0 {
             info!("Scheduler not started (manual sync only)");
@@ -101,6 +107,7 @@ impl SyncScheduler {
     }
     
     /// Stop the scheduler
+    #[allow(dead_code)] // Will be used in future implementations
     pub fn stop(&self) {
         let mut running = self.running.lock().unwrap();
         *running = false;

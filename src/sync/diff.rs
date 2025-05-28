@@ -2,6 +2,7 @@ use std::path::PathBuf;
 
 /// Action to take for a file
 #[derive(Debug, Clone, PartialEq)]
+#[allow(dead_code)] // Will be used in future implementations
 pub enum FileAction {
     /// Upload file to S3
     Upload,
@@ -15,6 +16,7 @@ pub enum FileAction {
 
 /// Represents a difference between local and S3 files
 #[derive(Debug, Clone)]
+#[allow(dead_code)] // Will be used in future implementations
 pub struct FileDiff {
     /// Action to take
     pub action: FileAction,
@@ -25,6 +27,7 @@ pub struct FileDiff {
 }
 
 /// Calculate file hash for comparison
+#[allow(dead_code)] // Will be used in future implementations
 pub fn calculate_file_hash(path: &PathBuf) -> Result<String, std::io::Error> {
     use sha2::{Sha256, Digest};
     use std::fs::File;
