@@ -5,10 +5,10 @@ use aws_types::region::Region;
 use log::{error, info, debug};
 use std::collections::HashMap;
 use std::sync::Arc;
-use tokio::sync::Mutex as TokioMutex;
-use aws_config::meta::credentials::CredentialsProviderChain;
+// use tokio::sync::Mutex as TokioMutex; // Unused
+// use aws_config::meta::credentials::CredentialsProviderChain; // Unused
 use aws_sdk_s3::config::Credentials;
-use aws_sdk_s3::error::ProvideErrorMetadata;
+// use aws_sdk_s3::error::ProvideErrorMetadata; // Unused
 
 use crate::config::credentials::CredentialManager;
 use crate::aws::s3::S3ErrorHelper;

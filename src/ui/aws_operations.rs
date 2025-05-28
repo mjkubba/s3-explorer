@@ -1,5 +1,5 @@
 use log::{error, debug};
-use std::sync::Arc;
+// use std::sync::Arc; // Unused
 use std::path::{Path, PathBuf};
 
 use crate::aws::transfer::TransferManager;

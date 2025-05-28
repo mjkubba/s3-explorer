@@ -1,6 +1,6 @@
 use anyhow::{anyhow, Result};
 use glob::Pattern;
-use log::{debug, error};
+use log::debug; // Only keep debug, remove error
 use std::fmt;
 use std::path::Path;
 

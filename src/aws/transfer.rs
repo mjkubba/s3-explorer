@@ -7,7 +7,7 @@ use std::path::Path;
 use std::sync::Arc;
 use std::fs;
 use tokio::io::AsyncWriteExt;
-use chrono::{DateTime, Utc, TimeZone};
+use chrono::{/* DateTime, */ Utc, TimeZone};
 
 use crate::aws::s3::S3ErrorHelper;
 
@@ -104,7 +104,7 @@ impl TransferManager {
                         .map(|dt| {
                             // Format the date in a human-readable format
                             // Extract the timestamp from the debug representation
-                            let dt_str = format!("{:?}", dt);
+                            let _dt_str = format!("{:?}", dt);
                             let dt_human = Utc.timestamp_opt(dt.secs(), 0)
                             .single()
                             .map(|dt| dt.format("%Y-%m-%d %H:%M:%S").to_string())

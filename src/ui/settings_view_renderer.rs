@@ -1,6 +1,6 @@
 use eframe::egui;
 use log::error;
-use std::sync::Arc;
+// use std::sync::Arc; // Unused
 
 use crate::config::credentials::CredentialManager;
 use crate::ui::app_state::{AppState, CurrentView};

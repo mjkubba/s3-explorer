@@ -2,10 +2,11 @@ use anyhow::{anyhow, Result};
 use std::path::{Path, PathBuf};
 use std::collections::HashMap;
 
-use crate::aws::transfer::{TransferManager, TransferProgress};
+use crate::aws::transfer::{TransferManager/* , TransferProgress */};
 
 /// Result of a sync operation
 #[derive(Default)]
+#[allow(dead_code)] // These fields will be used in future implementations
 pub struct SyncResult {
     pub files_uploaded: usize,
     pub files_downloaded: usize,
@@ -28,6 +29,7 @@ struct FileDiff {
     action: FileAction,
     local_path: Option<PathBuf>,
     s3_key: Option<String>,
+    #[allow(dead_code)] // Will be used in future implementations
     size: u64,
 }
 
@@ -254,8 +256,10 @@ mod tests {
         let mut file2 = File::create(&file2_path).unwrap();
         file2.write_all(b"Hello, again!").unwrap();
         
-        // Create a sync engine
-        let engine = SyncEngine::new(TransferManager::new(Arc::new(aws_sdk_s3::Client::new(&aws_sdk_s3::Config::builder().build()))));
+        // Create a sync engine with mock client for testing
+        // Note: In a real test, we would use a proper SDK config
+        #[allow(unused_variables)]
+        let engine = SyncEngine::new(TransferManager::new(Arc::new(aws_sdk_s3::Client::new(&aws_types::sdk_config::SdkConfig::builder().build()))));
         
         // Scan the folder
         let files = engine.scan_local_folder(path).unwrap();
@@ -283,8 +287,10 @@ mod tests {
         remote_files.insert("file2.txt".to_string(), 250); // Different size
         remote_files.insert("file4.txt".to_string(), 400); // Only remote
         
-        // Create a sync engine
-        let engine = SyncEngine::new(TransferManager::new(Arc::new(aws_sdk_s3::Client::new(&aws_sdk_s3::Config::builder().build()))));
+        // Create a sync engine with mock client for testing
+        // Note: In a real test, we would use a proper SDK config
+        #[allow(unused_variables)]
+        let engine = SyncEngine::new(TransferManager::new(Arc::new(aws_sdk_s3::Client::new(&aws_types::sdk_config::SdkConfig::builder().build()))));
         
         // Compare files with delete_removed = false
         let diffs = engine.compare_files(&local_files, &remote_files, false);

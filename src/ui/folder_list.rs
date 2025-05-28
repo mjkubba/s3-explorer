@@ -1,9 +1,9 @@
 use eframe::egui;
 use std::path::PathBuf;
-use std::sync::mpsc;
-use std::thread;
+// use std::sync::mpsc; // Unused
+// use std::thread; // Unused
 use log::{debug, error};
-use dirs;
+// use dirs; // Unused
 
 /// Represents a folder to be synced
 #[derive(Clone, Debug)]
