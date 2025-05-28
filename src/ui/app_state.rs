@@ -26,7 +26,9 @@ pub enum StatusMessage {
     Error(String),
     ObjectList(Vec<S3Object>),
     BucketList(Vec<String>),
+    #[allow(dead_code)] // Will be used in future implementations
     Progress(TransferProgress),
+    #[allow(dead_code)] // Will be used in future implementations
     SyncComplete,
 }
 
@@ -46,6 +48,7 @@ pub struct AppState {
     pub status_tx: mpsc::Sender<StatusMessage>,
     pub status_rx: mpsc::Receiver<StatusMessage>,
     pub rt: Handle,
+    #[allow(dead_code)] // Will be used in future implementations
     pub credential_manager: CredentialManager,
 }
 

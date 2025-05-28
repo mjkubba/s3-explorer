@@ -17,6 +17,7 @@ pub struct BucketView {
     selected_objects: HashSet<String>,
     filter: String,
     loading: bool,
+    #[allow(dead_code)] // Will be used in future implementations
     error_message: Option<String>,
     bucket_regions: HashMap<String, String>,
 }
@@ -32,11 +33,13 @@ pub struct S3Object {
 
 impl BucketView {
     /// Create a new bucket view
+    #[allow(dead_code)] // Will be used in future implementations
     pub fn new() -> Self {
         Self::default()
     }
     
     /// Set an error message
+    #[allow(dead_code)] // Will be used in future implementations
     pub fn set_error(&mut self, message: String) {
         error!("Bucket view error: {}", message);
         self.error_message = Some(message);
@@ -44,11 +47,13 @@ impl BucketView {
     }
     
     /// Clear the error message
+    #[allow(dead_code)] // Will be used in future implementations
     pub fn clear_error(&mut self) {
         self.error_message = None;
     }
     
     /// Get the error message
+    #[allow(dead_code)] // Will be used in future implementations
     pub fn error_message(&self) -> Option<&String> {
         self.error_message.as_ref()
     }
@@ -60,6 +65,7 @@ impl BucketView {
     }
     
     /// Check if the view is in loading state
+    #[allow(dead_code)] // Will be used in future implementations
     pub fn is_loading(&self) -> bool {
         self.loading
     }
@@ -127,6 +133,7 @@ impl BucketView {
     }
     
     /// Get a mutable reference to the selected bucket
+    #[allow(dead_code)] // Will be used in future implementations
     pub fn selected_bucket_mut(&mut self) -> &mut Option<String> {
         &mut self.selected_bucket
     }
