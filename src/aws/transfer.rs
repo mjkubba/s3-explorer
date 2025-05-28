@@ -16,6 +16,7 @@ use crate::aws::s3::S3ErrorHelper;
 pub struct TransferProgress {
     pub file_name: String,
     pub bytes_transferred: u64,
+    #[allow(dead_code)] // Will be used in future implementations
     pub total_bytes: u64,
     pub percentage: f32,
 }
@@ -251,6 +252,7 @@ impl TransferManager {
     }
     
     /// Delete an object from S3
+    #[allow(dead_code)] // Will be used in future implementations
     pub async fn delete_object(&self, bucket: &str, s3_key: &str) -> Result<()> {
         debug!("Deleting object: s3://{}/{}", bucket, s3_key);
         
@@ -265,6 +267,7 @@ impl TransferManager {
     }
     
     /// Check if an object exists in S3
+    #[allow(dead_code)] // Will be used in future implementations
     pub async fn object_exists(&self, bucket: &str, s3_key: &str) -> Result<bool> {
         debug!("Checking if object exists: s3://{}/{}", bucket, s3_key);
         
@@ -286,6 +289,7 @@ impl TransferManager {
     }
     
     /// Get the size of an object in S3
+    #[allow(dead_code)] // Will be used in future implementations
     pub async fn get_object_size(&self, bucket: &str, s3_key: &str) -> Result<u64> {
         debug!("Getting size of object: s3://{}/{}", bucket, s3_key);
         
@@ -299,6 +303,7 @@ impl TransferManager {
     }
     
     /// Get the ETag of an object in S3
+    #[allow(dead_code)] // Will be used in future implementations
     pub async fn get_object_etag(&self, bucket: &str, s3_key: &str) -> Result<String> {
         debug!("Getting ETag of object: s3://{}/{}", bucket, s3_key);
         

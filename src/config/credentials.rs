@@ -77,6 +77,7 @@ impl CredentialManager {
     }
     
     /// Clear AWS credentials from the system keyring
+    #[allow(dead_code)] // Will be used in future implementations
     pub fn clear_credentials() -> Result<()> {
         // Clear access key
         let access_key_entry = Entry::new(SERVICE_NAME, "aws_access_key");

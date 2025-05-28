@@ -51,6 +51,7 @@ impl Default for AppSettings {
 
 impl AppSettings {
     /// Load settings from the config file
+    #[allow(dead_code)] // Will be used in future implementations
     pub fn load() -> Result<Self> {
         let config_path = Self::get_config_path()?;
         
@@ -69,6 +70,7 @@ impl AppSettings {
     }
     
     /// Save settings to the config file
+    #[allow(dead_code)] // Will be used in future implementations
     pub fn save(&self) -> Result<()> {
         let config_path = Self::get_config_path()?;
         
@@ -85,6 +87,7 @@ impl AppSettings {
     }
     
     /// Get the path to the config file
+    #[allow(dead_code)] // Will be used in future implementations
     fn get_config_path() -> Result<PathBuf> {
         let config_dir = dirs::config_dir()
             .ok_or_else(|| anyhow!("Could not determine config directory"))?
@@ -94,6 +97,7 @@ impl AppSettings {
     }
     
     /// Convert folder configs to SyncFolder objects
+    #[allow(dead_code)] // Will be used in future implementations
     pub fn to_sync_folders(&self) -> Vec<SyncFolder> {
         self.folders
             .iter()
@@ -107,6 +111,7 @@ impl AppSettings {
     }
     
     /// Update folder configs from SyncFolder objects
+    #[allow(dead_code)] // Will be used in future implementations
     pub fn update_from_sync_folders(&mut self, folders: &[SyncFolder]) {
         self.folders = folders
             .iter()

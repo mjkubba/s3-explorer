@@ -69,6 +69,7 @@ impl AwsAuth {
     }
     
     /// Load credentials from the system keyring
+    #[allow(dead_code)] // Will be used in future implementations
     pub fn load_credentials(&mut self) -> Result<()> {
         debug!("Loading AWS credentials from keyring");
         
@@ -178,16 +179,19 @@ impl AwsAuth {
     }
     
     /// Get the AWS access key
+    #[allow(dead_code)] // Will be used in future implementations
     pub fn access_key(&self) -> &str {
         &self.access_key
     }
     
     /// Get the AWS secret key
+    #[allow(dead_code)] // Will be used in future implementations
     pub fn secret_key(&self) -> &str {
         &self.secret_key
     }
     
     /// Get the AWS region
+    #[allow(dead_code)] // Will be used in future implementations
     pub fn region(&self) -> &str {
         &self.region
     }

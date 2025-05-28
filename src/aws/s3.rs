@@ -59,6 +59,7 @@ impl S3ErrorHelper {
     }
     
     /// Convert an AWS SDK error to an anyhow error with detailed information
+    #[allow(dead_code)] // Will be used in future implementations
     pub fn convert_sdk_error<E>(error: SdkError<E>, operation: &str) -> anyhow::Error 
     where 
         E: std::fmt::Debug + std::fmt::Display

@@ -4,12 +4,14 @@ use log::{debug, error, info};
 use super::auth::AwsAuth;
 
 /// S3 bucket operations
+#[allow(dead_code)] // Will be used in future implementations
 pub struct BucketManager {
     auth: AwsAuth,
 }
 
 /// S3 object information
 #[derive(Debug, Clone)]
+#[allow(dead_code)] // Will be used in future implementations
 pub struct S3ObjectInfo {
     pub key: String,
     pub size: i64,
@@ -19,11 +21,13 @@ pub struct S3ObjectInfo {
 
 impl BucketManager {
     /// Create a new bucket manager with the given authentication
+    #[allow(dead_code)] // Will be used in future implementations
     pub fn new(auth: AwsAuth) -> Self {
         Self { auth }
     }
     
     /// List all available buckets
+    #[allow(dead_code)] // Will be used in future implementations
     pub async fn list_buckets(&mut self) -> Result<Vec<String>> {
         let client = self.auth.get_client().await?;
         
@@ -46,6 +50,7 @@ impl BucketManager {
     }
     
     /// Create a new bucket
+    #[allow(dead_code)] // Will be used in future implementations
     pub async fn create_bucket(&mut self, bucket_name: &str) -> Result<()> {
         let client = self.auth.get_client().await?;
         
@@ -105,6 +110,7 @@ impl BucketManager {
     // }
     
     /// Delete an object from a bucket
+    #[allow(dead_code)] // Will be used in future implementations
     pub async fn delete_object(&mut self, bucket: &str, key: &str) -> Result<()> {
         let client = self.auth.get_client().await?;
         
@@ -121,6 +127,7 @@ impl BucketManager {
     }
     
     /// Check if a bucket exists
+    #[allow(dead_code)] // Will be used in future implementations
     pub async fn bucket_exists(&mut self, bucket: &str) -> Result<bool> {
         let client = self.auth.get_client().await?;
         
