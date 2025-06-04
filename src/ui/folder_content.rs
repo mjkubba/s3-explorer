@@ -146,6 +146,19 @@ impl FolderContent {
         });
     }
     
+    /// Check if a file is selected
+    pub fn is_file_selected(&self, path: &PathBuf) -> bool {
+        self.selected_files.contains(path)
+    }
+    
+    /// Toggle selection of a file
+    pub fn toggle_file_selection(&mut self, path: &PathBuf) {
+        if self.selected_files.contains(path) {
+            self.selected_files.remove(path);
+        } else {
+            self.selected_files.insert(path.clone());
+        }
+    }
     /// Set the current folder to display
     pub fn set_folder(&mut self, path: PathBuf) {
         debug!("Setting folder to: {}", path.display());

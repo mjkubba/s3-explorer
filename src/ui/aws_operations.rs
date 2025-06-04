@@ -4,6 +4,7 @@ use std::path::{Path, PathBuf};
 
 use crate::aws::transfer::TransferManager;
 use crate::ui::app_state::{AppState, StatusMessage};
+use crate::ui::bucket_view::S3Object;
 
 /// AWS-related operations for the application
 pub struct AwsOperations;
@@ -264,26 +265,26 @@ impl AwsOperations {
         };
         
         // Get the selected files
-        let files = app_state.folder_content.files();
-        if files.is_empty() {
-            app_state.set_status_error("No files available to upload");
+        let selected_files = app_state.folder_content.selected_files();
+        if selected_files.is_empty() {
+            app_state.set_status_error("No files selected to upload");
             return;
         }
-        
-        // For now, we'll upload all files in the folder
-        // In a future enhancement, we could add file selection functionality
         
         // Clone necessary data for the async task
         let auth_clone = app_state.aws_auth.clone();
         let tx = app_state.status_tx.clone();
         let bucket_name = bucket.clone();
         let folder_path_clone = folder_path.clone();
-        let files_clone = files.clone();
+        let files_to_upload: Vec<PathBuf> = selected_files.iter()
+            .filter(|file| !file.is_directory) // Skip directories
+            .map(|file| file.path.clone())
+            .collect();
         
         // Get the bucket region from the bucket view
         let bucket_region = app_state.bucket_view.get_bucket_region(&bucket).cloned();
         
-        app_state.set_status_info(&format!("Uploading files to bucket {}...", bucket));
+        app_state.set_status_info(&format!("Uploading {} files to bucket {}...", files_to_upload.len(), bucket));
         
         // Spawn an async task to handle the upload
         app_state.rt.spawn(async move {
@@ -351,19 +352,20 @@ impl AwsOperations {
             let mut error_count = 0;
             
             // Process each file
-            for file in files_clone {
-                // Skip directories
-                if file.is_directory {
-                    continue;
-                }
-                
+            for file_path in files_to_upload {
                 // Calculate the S3 key by removing the folder path prefix
-                let file_path = PathBuf::from(&folder_path_clone).join(&file.name);
                 let rel_path = match file_path.strip_prefix(&folder_path_clone) {
                     Ok(rel) => rel,
                     Err(_) => {
                         // If we can't determine the relative path, use the file name
-                        Path::new(&file.name)
+                        match file_path.file_name() {
+                            Some(name) => Path::new(name),
+                            None => {
+                                error!("Could not determine file name for {}", file_path.display());
+                                error_count += 1;
+                                continue;
+                            }
+                        }
                     }
                 };
                 
@@ -428,14 +430,11 @@ impl AwsOperations {
         };
         
         // Get the selected objects
-        let objects = app_state.bucket_view.objects().to_vec();
-        if objects.is_empty() {
-            app_state.set_status_error("No objects available to download");
+        let selected_objects = app_state.bucket_view.selected_objects();
+        if selected_objects.is_empty() {
+            app_state.set_status_error("No objects selected to download");
             return;
         }
-        
-        // For now, we'll download all objects in the bucket
-        // In a future enhancement, we could add object selection functionality
         
         // Clone necessary data for the async task
         let auth_clone = app_state.aws_auth.clone();
@@ -443,10 +442,16 @@ impl AwsOperations {
         let bucket_name = bucket.clone();
         let folder_path_clone = folder_path.clone();
         
+        // Create a vector of objects to download
+        let objects_to_download: Vec<S3Object> = selected_objects.iter()
+            .filter(|obj| !obj.is_directory) // Skip directories
+            .map(|&obj| obj.clone())
+            .collect();
+        
         // Get the bucket region from the bucket view
         let bucket_region = app_state.bucket_view.get_bucket_region(&bucket).cloned();
         
-        app_state.set_status_info(&format!("Downloading files from bucket {}...", bucket));
+        app_state.set_status_info(&format!("Downloading {} files from bucket {}...", objects_to_download.len(), bucket));
         
         // Spawn an async task to handle the download
         app_state.rt.spawn(async move {
@@ -514,12 +519,7 @@ impl AwsOperations {
             let mut error_count = 0;
             
             // Process each object
-            for object in objects {
-                // Skip directories
-                if object.is_directory {
-                    continue;
-                }
-                
+            for object in objects_to_download {
                 // Calculate the local file path
                 let local_path = folder_path_clone.join(object.key.replace('/', std::path::MAIN_SEPARATOR_STR));
                 

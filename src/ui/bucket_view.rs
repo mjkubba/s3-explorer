@@ -186,6 +186,8 @@ impl BucketView {
     pub fn set_objects(&mut self, objects: Vec<S3Object>) {
         self.objects = objects;
         self.selected_objects.clear();
+        // Reset loading state when objects are set
+        self.loading = false;
     }
     
     /// Toggle selection of an object

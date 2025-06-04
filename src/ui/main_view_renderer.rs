@@ -116,6 +116,7 @@ impl MainViewRenderer {
             // Create a table header for bucket contents
             ui.horizontal(|ui| {
                 ui.style_mut().spacing.item_spacing.x = 10.0;
+                ui.strong("Select");
                 ui.strong("Type");
                 ui.strong("Name");
                 ui.add_space(200.0);
@@ -130,18 +131,25 @@ impl MainViewRenderer {
             egui::ScrollArea::vertical()
                 .id_source("bucket_contents_scroll")
                 .show(ui, |ui| {
-                    let objects = app_state.bucket_view.objects();
+                    let objects = app_state.bucket_view.objects().to_vec(); // Clone to avoid borrow issues
                     
                     if objects.is_empty() {
                         ui.label("No objects in this bucket");
                     } else {
                         // Add each object as a row in the table
-                        for object in objects {
+                        for object in &objects {
                             // Use a container for each row
                             egui::containers::Frame::none()
                                 .show(ui, |ui| {
                                     ui.horizontal(|ui| {
                                         ui.style_mut().spacing.item_spacing.x = 10.0;
+                                        
+                                        // Selection checkbox
+                                        let is_selected = app_state.bucket_view.is_object_selected(&object.key);
+                                        let mut selected = is_selected;
+                                        if ui.checkbox(&mut selected, "").changed() {
+                                            app_state.bucket_view.toggle_object_selection(&object.key);
+                                        }
                                         
                                         // Type icon
                                         let icon = if object.is_directory { "📁" } else { "📄" };
@@ -149,7 +157,11 @@ impl MainViewRenderer {
                                         
                                         // Name
                                         let name_len = object.key.len();
-                                        ui.label(&object.key);
+                                        let text = egui::RichText::new(&object.key);
+                                        let text = if is_selected { text.strong() } else { text };
+                                        if ui.selectable_label(is_selected, text).clicked() {
+                                            app_state.bucket_view.toggle_object_selection(&object.key);
+                                        }
                                         ui.add_space(200.0 - name_len as f32 * 7.0); // Approximate spacing
                                         
                                         // Size
@@ -170,6 +182,23 @@ impl MainViewRenderer {
                             ui.add_space(2.0);
                         }
                     }
+                });
+                
+                // Add selection controls
+                ui.separator();
+                ui.horizontal(|ui| {
+                    if ui.button("Select All").clicked() {
+                        app_state.bucket_view.select_all_visible();
+                    }
+                    
+                    if ui.button("Clear Selection").clicked() {
+                        app_state.bucket_view.clear_selection();
+                    }
+                    
+                    ui.with_layout(egui::Layout::right_to_left(), |ui| {
+                        let selected_count = app_state.bucket_view.selected_objects().len();
+                        ui.label(format!("{} objects selected", selected_count));
+                    });
                 });
         } else {
             ui.centered_and_justified(|ui| {
@@ -214,6 +243,7 @@ impl MainViewRenderer {
             // Table header
             ui.horizontal(|ui| {
                 ui.style_mut().spacing.item_spacing.x = 10.0;
+                ui.strong("Select");
                 ui.strong("Type");
                 ui.strong("Name");
                 ui.add_space(200.0);
@@ -237,16 +267,27 @@ impl MainViewRenderer {
                         }
                     }
                 } else {
-                    for file in files {
+                    for file in &files {
                         ui.horizontal(|ui| {
                             ui.style_mut().spacing.item_spacing.x = 10.0;
+                            
+                            // Selection checkbox
+                            let is_selected = app_state.folder_content.is_file_selected(&file.path);
+                            let mut selected = is_selected;
+                            if ui.checkbox(&mut selected, "").changed() {
+                                app_state.folder_content.toggle_file_selection(&file.path);
+                            }
                             
                             // Type icon
                             let icon = if file.is_directory { "📁" } else { "📄" };
                             ui.label(icon);
                             
                             // Name
-                            ui.label(&file.name);
+                            let text = egui::RichText::new(&file.name);
+                            let text = if is_selected { text.strong() } else { text };
+                            if ui.selectable_label(is_selected, text).clicked() {
+                                app_state.folder_content.toggle_file_selection(&file.path);
+                            }
                             ui.add_space(200.0 - file.name.len() as f32 * 7.0);
                             
                             // Size
@@ -263,6 +304,24 @@ impl MainViewRenderer {
                         });
                     }
                 }
+            });
+            
+            // Add selection controls
+            ui.separator();
+            ui.horizontal(|ui| {
+                if ui.button("Select All").clicked() {
+                    app_state.folder_content.select_all_visible();
+                }
+                
+                if ui.button("Clear Selection").clicked() {
+                    app_state.folder_content.clear_selection();
+                }
+                
+                ui.with_layout(egui::Layout::right_to_left(), |ui| {
+                    let selected_count = app_state.folder_content.selected_count();
+                    let selected_size = app_state.folder_content.selected_size();
+                    ui.label(format!("{} files selected ({} total)", selected_count, format_size(selected_size)));
+                });
             });
         } else {
             ui.centered_and_justified(|ui| {
