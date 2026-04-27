@@ -15,14 +15,13 @@ pub struct AwsAuth {
     access_key: String,
     secret_key: String,
     region: String,
+    use_default_chain: bool,
     client: Option<Arc<Client>>,
     region_clients: HashMap<String, Arc<Client>>,
 }
 
 impl Default for AwsAuth {
-    fn default() -> Self {
-        Self::new()
-    }
+    fn default() -> Self { Self::new() }
 }
 
 impl AwsAuth {
@@ -31,6 +30,7 @@ impl AwsAuth {
             access_key: String::new(),
             secret_key: String::new(),
             region: "us-east-1".to_string(),
+            use_default_chain: false,
             client: None,
             region_clients: HashMap::new(),
         }
@@ -41,13 +41,26 @@ impl AwsAuth {
         self.access_key = access_key;
         self.secret_key = secret_key;
         self.region = region;
+        self.use_default_chain = false;
         self.client = None;
         self.region_clients.clear();
     }
     
+    pub fn set_default_chain(&mut self, region: String) {
+        debug!("Using default AWS credential chain");
+        self.region = region;
+        self.use_default_chain = true;
+        self.client = None;
+        self.region_clients.clear();
+    }
+    
+    pub fn has_credentials(&self) -> bool {
+        self.use_default_chain || (!self.access_key.is_empty() && !self.secret_key.is_empty())
+    }
+    
     pub async fn initialize(&mut self) -> Result<()> {
-        debug!("Initializing AWS client");
-        if self.access_key.is_empty() || self.secret_key.is_empty() {
+        debug!("Initializing AWS client (default_chain={})", self.use_default_chain);
+        if !self.has_credentials() {
             return Err(anyhow!("AWS credentials not set"));
         }
         let _ = self.get_client().await?;
@@ -69,9 +82,6 @@ impl AwsAuth {
     
     pub async fn test_credentials(&mut self) -> Result<()> {
         debug!("Testing AWS credentials");
-        if self.access_key.is_empty() || self.secret_key.is_empty() {
-            return Err(anyhow!("AWS credentials not set"));
-        }
         let client = self.get_client().await?;
         match client.list_buckets().send().await {
             Ok(_) => {
@@ -107,19 +117,27 @@ impl AwsAuth {
     }
     
     async fn build_client(&self, region: &str) -> Client {
-        let credentials = Credentials::new(
-            &self.access_key,
-            &self.secret_key,
-            None,
-            None,
-            "s3sync-app",
-        );
-        let config = aws_config::defaults(aws_config::BehaviorVersion::latest())
-            .region(Region::new(region.to_string()))
-            .credentials_provider(credentials)
-            .load()
-            .await;
-        Client::new(&config)
+        if self.use_default_chain {
+            let config = aws_config::defaults(aws_config::BehaviorVersion::latest())
+                .region(Region::new(region.to_string()))
+                .load()
+                .await;
+            Client::new(&config)
+        } else {
+            let credentials = Credentials::new(
+                &self.access_key,
+                &self.secret_key,
+                None,
+                None,
+                "s3sync-app",
+            );
+            let config = aws_config::defaults(aws_config::BehaviorVersion::latest())
+                .region(Region::new(region.to_string()))
+                .credentials_provider(credentials)
+                .load()
+                .await;
+            Client::new(&config)
+        }
     }
     
     #[allow(dead_code)]
