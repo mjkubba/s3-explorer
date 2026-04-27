@@ -268,7 +268,7 @@ mod tests {
         // Create a sync engine with mock client for testing
         // Note: In a real test, we would use a proper SDK config
         #[allow(unused_variables)]
-        let engine = SyncEngine::new(TransferManager::new(Arc::new(aws_sdk_s3::Client::new(&aws_types::sdk_config::SdkConfig::builder().build()))));
+        let engine = SyncEngine::new(TransferManager::new(Arc::new(aws_sdk_s3::Client::new(&aws_types::sdk_config::SdkConfig::builder().behavior_version(aws_config::BehaviorVersion::latest()).build()))));
         
         // Scan the folder
         let files = engine.scan_local_folder(path).unwrap();
@@ -297,7 +297,7 @@ mod tests {
         // Create a sync engine with mock client for testing
         // Note: In a real test, we would use a proper SDK config
         #[allow(unused_variables)]
-        let engine = SyncEngine::new(TransferManager::new(Arc::new(aws_sdk_s3::Client::new(&aws_types::sdk_config::SdkConfig::builder().build()))));
+        let engine = SyncEngine::new(TransferManager::new(Arc::new(aws_sdk_s3::Client::new(&aws_types::sdk_config::SdkConfig::builder().behavior_version(aws_config::BehaviorVersion::latest()).build()))));
         
         // Compare files with delete_removed = false
         let diffs = engine.compare_files(&local_files, &remote_files, false);

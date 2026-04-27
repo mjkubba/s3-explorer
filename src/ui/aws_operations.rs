@@ -184,63 +184,16 @@ impl AwsOperations {
     async fn get_bucket_location(client: &aws_sdk_s3::Client, bucket: &str) -> Result<String, String> {
         match client.get_bucket_location().bucket(bucket).send().await {
             Ok(resp) => {
-                // Extract the location constraint as a string
-                let location_str = match resp.location_constraint() {
-                    Some(constraint) => {
-                        // Convert the enum to a debug string and extract the value
-                        let debug_str = format!("{:?}", constraint);
-                        if debug_str.contains("\"\"") || debug_str == "Empty" {
-                            // Empty constraint means us-east-1
-                            "us-east-1".to_string()
-                        } else if debug_str.starts_with("Unknown(") {
-                            // Extract the value from Unknown("value")
-                            let start = debug_str.find('(').map(|i| i + 2).unwrap_or(0);
-                            let end = debug_str.rfind('"').unwrap_or(debug_str.len());
-                            if start < end {
-                                debug_str[start..end].to_string()
-                            } else {
-                                "us-east-1".to_string() // Default if parsing fails
-                            }
-                        } else {
-                            // For known enum variants, extract the region name
-                            let region_name = match debug_str.as_str() {
-                                "EuWest1" => "eu-west-1",
-                                "UsWest1" => "us-west-1",
-                                "UsWest2" => "us-west-2",
-                                "EuWest2" => "eu-west-2",
-                                "EuWest3" => "eu-west-3",
-                                "UsEast2" => "us-east-2",
-                                "ApSouth1" => "ap-south-1",
-                                "ApSoutheast1" => "ap-southeast-1",
-                                "ApSoutheast2" => "ap-southeast-2",
-                                "ApNortheast1" => "ap-northeast-1",
-                                "ApNortheast2" => "ap-northeast-2",
-                                "ApNortheast3" => "ap-northeast-3",
-                                "SaEast1" => "sa-east-1",
-                                "CnNorth1" => "cn-north-1",
-                                "CnNorthwest1" => "cn-northwest-1",
-                                "UsGovWest1" => "us-gov-west-1",
-                                "UsGovEast1" => "us-gov-east-1",
-                                "EuCentral1" => "eu-central-1",
-                                "EuNorth1" => "eu-north-1",
-                                "MeSouth1" => "me-south-1",
-                                "AfSouth1" => "af-south-1",
-                                "EuSouth1" => "eu-south-1",
-                                "ApEast1" => "ap-east-1",
-                                _ => "us-east-1", // Default for unknown regions
-                            };
-                            region_name.to_string()
-                        }
-                    },
-                    None => "us-east-1".to_string(), // Default if no constraint is specified
-                };
-                
-                Ok(location_str)
+                let location = resp.location_constraint()
+                    .map(|c| c.as_str().to_string())
+                    .unwrap_or_default();
+                if location.is_empty() {
+                    Ok("us-east-1".to_string())
+                } else {
+                    Ok(location)
+                }
             },
-            Err(err) => {
-                // Convert to a string error without using code() and message()
-                Err(format!("Failed to get bucket location: {}", err))
-            }
+            Err(err) => Err(format!("Failed to get bucket location: {}", err)),
         }
     }
     

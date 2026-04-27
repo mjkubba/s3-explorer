@@ -90,8 +90,7 @@ impl SettingsView {
                 
                 ui.label("Sync Interval (minutes):");
                 ui.add(egui::Slider::new(&mut self.sync_interval, 0..=1440)
-                    .text("min")
-                    .clamp_to_range(true));
+                    .text("min"));
                 ui.end_row();
                 
                 // Display manual/auto based on sync_interval

@@ -1,4 +1,3 @@
-use eframe::egui;
 use log::info;
 
 mod aws;
@@ -8,21 +7,20 @@ mod ui;
 mod error_handling;
 
 #[tokio::main]
-async fn main() {
-    // Initialize logging
+async fn main() -> eframe::Result {
     env_logger::init();
     info!("Starting S3Sync application");
 
-    // Application options
-    let options = eframe::NativeOptions {
-        initial_window_size: Some(egui::Vec2::new(1024.0, 768.0)),
-        min_window_size: Some(egui::Vec2::new(800.0, 600.0)),
+    let native_options = eframe::NativeOptions {
+        viewport: egui::ViewportBuilder::default()
+            .with_inner_size([1024.0, 768.0])
+            .with_min_inner_size([800.0, 600.0]),
         ..Default::default()
     };
 
-    // Run the application
     eframe::run_native(
-        Box::new(ui::app::S3SyncApp::default()),
-        options,
-    );
+        "S3 Sync",
+        native_options,
+        Box::new(|_cc| Ok(Box::new(ui::app::S3SyncApp::default()))),
+    )
 }

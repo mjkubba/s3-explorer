@@ -6,19 +6,14 @@ use log::debug;
 pub struct S3ErrorHelper;
 
 impl S3ErrorHelper {
-    /// Extract detailed error information from an AWS SDK error
     pub fn extract_error_details<E>(error: &SdkError<E>) -> String 
     where 
         E: std::fmt::Debug + std::fmt::Display
     {
         debug!("Extracting error details from AWS SDK error: {:?}", error);
         
-        // For AWS SDK errors, we need to extract information differently
-        // since code() and message() methods aren't directly available
-        
         let error_string = format!("{:?}", error);
         
-        // Try to extract error type from the debug output
         let error_type = if error_string.contains("AccessDenied") {
             "AccessDenied"
         } else if error_string.contains("NoSuchBucket") {
@@ -37,7 +32,6 @@ impl S3ErrorHelper {
             "Unknown"
         };
         
-        // Check for specific error types and provide additional information
         let additional_info = match error_type {
             "AccessDenied" => " - Check your IAM permissions for this bucket",
             "NoSuchBucket" => " - The specified bucket does not exist",
@@ -49,7 +43,6 @@ impl S3ErrorHelper {
             _ => "",
         };
         
-        // Construct a detailed error message
         format!(
             "AWS S3 error - Type: {}, Raw: {}{}", 
             error_type,
@@ -58,8 +51,7 @@ impl S3ErrorHelper {
         )
     }
     
-    /// Convert an AWS SDK error to an anyhow error with detailed information
-    #[allow(dead_code)] // Will be used in future implementations
+    #[allow(dead_code)]
     pub fn convert_sdk_error<E>(error: SdkError<E>, operation: &str) -> anyhow::Error 
     where 
         E: std::fmt::Debug + std::fmt::Display
@@ -67,9 +59,4 @@ impl S3ErrorHelper {
         let detailed_error = Self::extract_error_details(&error);
         anyhow!("S3 {} operation failed: {}", operation, detailed_error)
     }
-}
-
-#[cfg(test)]
-mod tests {
-    // Tests would go here
 }

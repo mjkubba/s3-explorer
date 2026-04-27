@@ -73,7 +73,7 @@ impl MainViewRenderer {
                 if let Some(bucket) = app_state.bucket_view.selected_bucket() {
                     ui.heading(&format!("Bucket: {}", bucket));
                     
-                    ui.with_layout(egui::Layout::right_to_left(), |ui| {
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         if ui.button("Upload").clicked() {
                             AwsOperations::upload_selected(app_state);
                         }
@@ -96,9 +96,9 @@ impl MainViewRenderer {
             ui.separator();
             
             // Split the view into two panels
-            egui::TopBottomPanel::top("bucket_content_panel")
+            egui::Panel::top("bucket_content_panel")
                 .resizable(true)
-                .default_height(300.0)
+                .default_size(300.0)
                 .show_inside(ui, |ui| {
                     Self::render_bucket_content(app_state, ui);
                 });
@@ -129,7 +129,7 @@ impl MainViewRenderer {
             
             // Display bucket objects in a scrollable area
             egui::ScrollArea::vertical()
-                .id_source("bucket_contents_scroll")
+                .id_salt("bucket_contents_scroll")
                 .show(ui, |ui| {
                     let objects = app_state.bucket_view.objects().to_vec(); // Clone to avoid borrow issues
                     
@@ -139,7 +139,7 @@ impl MainViewRenderer {
                         // Add each object as a row in the table
                         for object in &objects {
                             // Use a container for each row
-                            egui::containers::Frame::none()
+                            egui::Frame::NONE
                                 .show(ui, |ui| {
                                     ui.horizontal(|ui| {
                                         ui.style_mut().spacing.item_spacing.x = 10.0;
@@ -195,7 +195,7 @@ impl MainViewRenderer {
                         app_state.bucket_view.clear_selection();
                     }
                     
-                    ui.with_layout(egui::Layout::right_to_left(), |ui| {
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         let selected_count = app_state.bucket_view.selected_objects().len();
                         ui.label(format!("{} objects selected", selected_count));
                     });
@@ -214,7 +214,7 @@ impl MainViewRenderer {
             if let Some(folder_path) = app_state.folder_list.selected_folder() {
                 ui.heading(&format!("Local Folder: {}", folder_path.display()));
                 
-                ui.with_layout(egui::Layout::right_to_left(), |ui| {
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     if ui.button("Refresh Folder").clicked() {
                         if let Some(path) = &app_state.folder_content.current_folder {
                             let path_clone = path.clone();
@@ -255,7 +255,7 @@ impl MainViewRenderer {
             ui.separator();
             
             // Display files in a scrollable area
-            egui::ScrollArea::vertical().id_source("local_folder_scroll").show(ui, |ui| {
+            egui::ScrollArea::vertical().id_salt("local_folder_scroll").show(ui, |ui| {
                 if files.is_empty() {
                     ui.label("No files in this folder or unable to access folder contents");
                     
@@ -317,7 +317,7 @@ impl MainViewRenderer {
                     app_state.folder_content.clear_selection();
                 }
                 
-                ui.with_layout(egui::Layout::right_to_left(), |ui| {
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     let selected_count = app_state.folder_content.selected_count();
                     let selected_size = app_state.folder_content.selected_size();
                     ui.label(format!("{} files selected ({} total)", selected_count, format_size(selected_size)));
