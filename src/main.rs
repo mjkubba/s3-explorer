@@ -4,6 +4,7 @@ mod aws;
 mod config;
 mod sync;
 mod ui;
+#[allow(dead_code)]
 mod error_handling;
 
 #[tokio::main]
