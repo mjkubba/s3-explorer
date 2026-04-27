@@ -7,10 +7,14 @@ mod ui;
 #[allow(dead_code)]
 mod error_handling;
 
-#[tokio::main]
-async fn main() -> eframe::Result {
+fn main() -> eframe::Result {
     env_logger::init();
     info!("Starting S3Sync application");
+
+    // Create a tokio runtime on a background thread so async tasks
+    // can run while eframe owns the main thread event loop.
+    let rt = tokio::runtime::Runtime::new().expect("Failed to create tokio runtime");
+    let _guard = rt.enter();
 
     let native_options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()

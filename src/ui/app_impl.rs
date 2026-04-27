@@ -60,15 +60,10 @@ impl Default for S3SyncApp {
                     app.state.settings_view.set_aws_region(region.clone());
                     
                     let auth_clone = app.state.aws_auth.clone();
-                    let access_key_clone = access_key.clone();
-                    let secret_key_clone = secret_key.clone();
-                    let region_clone = region.clone();
                     
-                    tokio::task::block_in_place(|| {
-                        app.state.rt.block_on(async {
-                            let mut auth = auth_clone.lock().await;
-                            auth.set_credentials(access_key_clone, secret_key_clone, region_clone);
-                        });
+                    app.state.rt.block_on(async {
+                        let mut auth = auth_clone.lock().await;
+                        auth.set_credentials(access_key.clone(), secret_key.clone(), region.clone());
                     });
                     
                     app.state.status_message = format!("Loaded credentials from keyring for region {}", region);
