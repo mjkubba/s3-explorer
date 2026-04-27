@@ -16,11 +16,23 @@ impl AwsOperations {
         let tx = app_state.status_tx.clone();
         let bucket_view_tx = app_state.status_tx.clone();
         
+        // Grab credentials from settings view to pass into the async task
+        let access_key = app_state.settings_view.aws_access_key();
+        let secret_key = app_state.settings_view.aws_secret_key();
+        let region = app_state.settings_view.aws_region();
+        
+        if access_key.is_empty() || secret_key.is_empty() {
+            app_state.set_status_error("AWS credentials not set. Please enter them in File → Settings first.");
+            return;
+        }
+        
         app_state.set_status_info("Connecting to AWS...");
         
         app_state.rt.spawn(async move {
-            // Get a mutable reference to the auth
             let mut auth = auth_clone.lock().await;
+            
+            // Ensure credentials are set on the auth object
+            auth.set_credentials(access_key, secret_key, region);
             
             // Initialize the AWS SDK
             match auth.initialize().await {
