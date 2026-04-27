@@ -1,67 +1,51 @@
-# S3Sync — Next Session Plan
+# S3Sync — Session Plan
 
-## Current State (2026-04-26)
+## Current State (2026-04-27)
 
-- **Builds**: ✅ (17 dead code warnings, no errors)
-- **Tests**: ✅ 8 passing, 1 ignored
+- **Builds**: ✅ (16 dead code warnings, 0 deprecation warnings, no errors)
+- **Tests**: ✅ 8 passing, 1 ignored, 0 failed
 - **Version**: 0.5.0
-- **Total code**: ~5,300 lines across 34 .rs files
-- **Git**: clean, all pushed to `git@github.com:mjkubba/s3-explorer.git`
+- **Rust**: 1.95.0 (updated from 1.87.0)
+- **Git**: clean, committed locally (not pushed)
 
-### What exists and works:
-- Project structure: aws/, config/, sync/, ui/ modules
-- AWS auth via system keyring (`keyring` crate, service name `s3sync`)
-- Credential storage/retrieval from Windows Credential Manager
-- S3 bucket operations (list, create)
-- File transfer (upload/download with multipart support)
-- Sync engine with diff detection and file filtering
-- GUI framework (eframe/egui) with multiple views
-- Settings, bucket view, folder content, filter view, progress view
+### Dependencies Updated (Phase 1 ✅ COMPLETE):
+- `eframe` 0.17 → 0.34.1
+- `egui` 0.17 → 0.34.1
+- `aws-sdk-s3` 0.28 → 1.x (1.123.0)
+- `aws-config` 0.55 → 1.x (1.8.14)
+- `aws-types` 0.55 → 1.x (1.3.12)
+- `keyring` 1.2 → 3.6
+- `env_logger` 0.9 → 0.11
+- `native-dialog` 0.6 → 0.7
+- `mockall` 0.11 → 0.13
+- Added `aws-credential-types` 1.2
 
-### What's broken/incomplete:
-- **Old dependencies** — the biggest issue:
-  - `eframe 0.17` → current is 0.29+ (major API changes)
-  - `egui 0.17` → current is 0.29+
-  - `aws-sdk-s3 0.28` → current is 1.x (major API changes)
-  - `aws-config 0.55` → current is 1.x
-  - `keyring 1.2` → current is 3.x
-- `eframe::run_native` API has changed (old: takes Box<dyn App>, new: takes App creator closure)
-- `NativeOptions` fields changed (initial_window_size → viewport)
-- Scheduler is stubbed out
-- 17 dead code warnings (error_handling.rs mostly)
+### API Changes Applied:
+- `epi::App` → `eframe::App` with `fn ui()` instead of `fn update()`
+- `NativeOptions::initial_window_size` → `viewport: ViewportBuilder`
+- `eframe::run_native` now takes creator closure returning `Result`
+- `egui::Layout::right_to_left()` → `right_to_left(Align::Center)`
+- `from_id_source` → `from_id_salt`
+- `Frame::none()` → `Frame::NONE`
+- `TopBottomPanel` → `Panel::top/bottom`
+- `menu::bar()` → `MenuBar::new().ui()`
+- `close_menu()` → `close()`
+- `clamp_to_range` → removed (default behavior)
+- AWS SDK: `buckets()/contents()` return `&[T]` directly (no unwrap_or_default)
+- AWS SDK: `size()` returns `Option<i64>`, `content_length()` returns `Option<i64>`
+- AWS SDK: `is_truncated()` returns `Option<bool>`
+- AWS SDK: `Credentials` moved to `aws-credential-types`
+- AWS SDK: `RegionProviderChain` → `aws_config::defaults()` with `BehaviorVersion`
+- Keyring: `Entry::new()` returns `Result`, `delete_password()` → `delete_credential()`
 
 ## Plan for Next Session
 
-### Phase 1: Update Dependencies (do first)
+### Phase 2: Fix and Verify (NEXT)
 
-Update `Cargo.toml` to modern versions and fix all compile errors:
-
-1. **eframe/egui 0.17 → 0.29+**
-   - `eframe::run_native` signature changed
-   - `NativeOptions` uses `ViewportBuilder` now
-   - `egui::CtxRef` → `egui::Context`
-   - `App` trait changed (update method signature)
-   - This will touch: `main.rs`, all `ui/*.rs` files
-
-2. **aws-sdk-s3 0.28 → 1.x, aws-config 0.55 → 1.x**
-   - Import paths changed significantly
-   - `Credentials` construction changed
-   - `Client` builder API changed
-   - This will touch: `aws/auth.rs`, `aws/bucket.rs`, `aws/transfer.rs`
-
-3. **keyring 1.2 → 3.x**
-   - `Entry::new` now returns `Result`
-   - `set_password`/`get_password` API slightly changed
-   - This will touch: `config/credentials.rs`
-
-4. **Other deps**: update `env_logger`, `native-dialog`, `winres` to latest
-
-### Phase 2: Fix and Verify
-
-1. Fix all compile errors from dependency updates
-2. Run tests — fix any broken tests
-3. Clean up dead code warnings (remove or use the error_handling functions)
-4. Verify the GUI launches and shows the main window
+1. ~~Fix all compile errors from dependency updates~~ ✅
+2. ~~Run tests — fix any broken tests~~ ✅
+3. Clean up dead code warnings (remove or `#[allow]` the error_handling functions)
+4. **Verify the GUI launches and shows the main window**
 
 ### Phase 3: End-to-End Test
 
@@ -74,9 +58,8 @@ Update `Cargo.toml` to modern versions and fix all compile errors:
 
 ### Notes
 
-- AWS creds are in Windows Credential Manager under service `s3sync` (keys: `aws_access_key`, `aws_secret_key`, `aws_region`)
-- No AWS CLI installed on this machine
+- AWS creds are in Windows Credential Manager under service `s3sync`
 - Git remote uses SSH (`git@github.com:mjkubba/s3-explorer.git`) — use `git.exe` for push
-- The `eframe` update is the biggest change — expect to rewrite most of `ui/app_impl.rs` and `main.rs`
-- Keep the sync engine and filter logic as-is — they work fine
 - Use `cargo.exe` for build/test (WSL on Windows filesystem)
+- The `app_progress_view.rs` file is dead code (not in mod.rs) — can be deleted
+- 16 dead code warnings remain, mostly in `error_handling.rs` and unused UI methods
